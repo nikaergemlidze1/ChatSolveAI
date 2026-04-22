@@ -29,7 +29,7 @@ A production-ready portfolio application demonstrating key skills demanded by th
 
 ```
 ┌────────────────┐      ┌─────────────────────────┐      ┌──────────────────┐
-│  🖥️ Streamlit  │      │       ⚡ FastAPI        │      │   🍃 MongoDB     │
+│  🖥️ Streamlit  |      │       ⚡FastAPI          │      │   🍃 MongoDB     │
 │   (Frontend)   │ HTTP │        (Backend)        │ API  │     Atlas        │
 │ Streamlit Cloud│◄────►│      Hosted on Render   │◄────►│ (Cloud Database) │
 └────────────────┘      └────────────┬────────────┘      └──────────────────┘
@@ -37,20 +37,15 @@ A production-ready portfolio application demonstrating key skills demanded by th
                         ┌────────────▼────────────┐
                         │   🦜 LangChain RAG      │
                         │   FAISS + GPT-3.5       │
-                        └─────────────────────────┘─────────────┘
+                        └─────────────────────────┘
 ```
-
----
-
-## 🌐 Cloud Deployment
-
+### 🌐 Cloud Deployment
 The system is fully deployed across a distributed cloud architecture:
 
-* **Frontend**: Streamlit Community Cloud (Auto-scaling UI).
-* **Backend**: Render (FastAPI service with custom Docker environment).
-* **Database**: MongoDB Atlas (Managed NoSQL cluster with network security & IP whitelisting).
-* **Security**: All API keys and database credentials managed via encrypted environment variables.
-
+- Frontend: Streamlit Community Cloud (Auto-scaling UI).
+- Backend: Render (FastAPI service with custom Docker environment).
+- Database: MongoDB Atlas (Managed NoSQL cluster with network security & IP whitelisting).
+- Security: All API keys and database credentials managed via encrypted environment variables.
 
 ### 🔄 Query Routing Pipeline
 
