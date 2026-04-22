@@ -31,7 +31,7 @@ import motor.motor_asyncio
 from pymongo import DESCENDING
 
 # ── Connection ────────────────────────────────────────────────────────────────
-MONGO_URL = os.getenv("MONGO_URL", "mongodb://localhost:27017")
+MONGO_URL = os.getenv("MONGO_URL") or os.getenv("MONGODB_URI") or "mongodb://localhost:27017"
 DB_NAME   = "chatsolveai"
 
 _client: motor.motor_asyncio.AsyncIOMotorClient | None = None
