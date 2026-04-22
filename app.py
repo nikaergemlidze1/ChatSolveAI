@@ -22,7 +22,7 @@ from dotenv import load_dotenv
 load_dotenv()  # picks up .env when running locally outside Docker
 
 # ── Config ────────────────────────────────────────────────────────────────────
-API_URL = os.getenv("API_URL", "http://localhost:8000")
+API_URL = os.getenv("API_URL", "https://chatsolve-api.onrender.com")
 
 # ── Page setup ────────────────────────────────────────────────────────────────
 st.set_page_config(
