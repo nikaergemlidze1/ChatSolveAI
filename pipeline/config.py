@@ -2,9 +2,15 @@
 
 import os
 from pathlib import Path
-from dotenv import load_dotenv
 
-load_dotenv()
+# python-dotenv is handy for local dev but not required in production
+# (Docker / HF Spaces / CI inject env vars directly). Keep the import optional
+# so the package can be consumed by lightweight test environments.
+try:
+    from dotenv import load_dotenv  # type: ignore
+    load_dotenv()
+except ImportError:  # pragma: no cover
+    pass
 
 # ── API ────────────────────────────────────────────────────────────────────────
 OPENAI_API_KEY: str = os.environ.get("OPENAI_API_KEY", "")

@@ -98,7 +98,7 @@ that gracefully.
 ## 5b. Re-deploying after new features land
 
 When you pull a new `main` that adds backend modules (e.g. `slowapi`,
-`/feedback`, `/suggest`, admin analytics), push them to the Space:
+`/feedback`, `/suggest`, analytics), push them to the Space:
 
 ```bash
 cd hf-space
