@@ -37,7 +37,8 @@ COPY processed_queries.csv    .
 RUN useradd --no-create-home appuser && chown -R appuser /app
 USER appuser
 
-# Uvicorn: single worker here — scale horizontally in production
-CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
+# Port is provided by the host (Render, HF Spaces) via $PORT; 7860 is the HF Spaces default.
+# Shell form so ${PORT:-7860} is expanded at runtime.
+CMD uvicorn api.main:app --host 0.0.0.0 --port ${PORT:-7860} --workers 1
 
-EXPOSE 8000
+EXPOSE 7860

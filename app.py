@@ -13,6 +13,7 @@ Run via Docker (recommended):
 
 import json
 import os
+import time
 import uuid
 
 import requests
@@ -22,7 +23,20 @@ from dotenv import load_dotenv
 load_dotenv()  # picks up .env when running locally outside Docker
 
 # ── Config ────────────────────────────────────────────────────────────────────
-API_URL = os.getenv("API_URL", "https://chatsolve-api.onrender.com")
+# API_URL can come from either a plain env var (local / Docker) or Streamlit
+# secrets (Streamlit Community Cloud). Streamlit secrets take precedence.
+_SECRET_API_URL = None
+try:
+    _SECRET_API_URL = st.secrets.get("API_URL")  # raises if no secrets.toml
+except Exception:
+    pass
+
+API_URL = (_SECRET_API_URL or os.getenv("API_URL") or "https://chatsolve-api.onrender.com").rstrip("/")
+
+# Cold-start-friendly health check. Render/HF free tiers can take 20-40s to
+# wake from sleep — a 3s timeout misreports "unreachable" during that window.
+HEALTH_TIMEOUT_S = int(os.getenv("API_HEALTH_TIMEOUT", "20"))
+HEALTH_RETRIES   = int(os.getenv("API_HEALTH_RETRIES", "2"))
 
 # ── Page setup ────────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -82,12 +96,23 @@ if "last_sources" not in st.session_state:
 
 # ── API helpers ───────────────────────────────────────────────────────────────
 
+@st.cache_data(ttl=15)
 def api_health() -> bool:
-    try:
-        r = requests.get(f"{API_URL}/health", timeout=3)
-        return r.ok
-    except Exception:
-        return False
+    """
+    Probe /health with a longer timeout + a few retries so that a cold-booting
+    backend (free-tier Render / HF Space) is not misreported as 'unreachable'.
+    Cached briefly so sidebar + input gate do not each fire their own request.
+    """
+    for attempt in range(HEALTH_RETRIES + 1):
+        try:
+            r = requests.get(f"{API_URL}/health", timeout=HEALTH_TIMEOUT_S)
+            if r.ok:
+                return True
+        except requests.RequestException:
+            pass
+        if attempt < HEALTH_RETRIES:
+            time.sleep(2)
+    return False
 
 
 def stream_response(query: str):
@@ -155,7 +180,11 @@ with st.sidebar:
         st.success("API connected", icon="✅")
     else:
         st.error(f"API unreachable at {API_URL}", icon="🔴")
-        st.info("Start the backend:\n```\nuvicorn api.main:app --port 8000\n```")
+        st.info(
+            "The backend may be cold-starting (free-tier hosts sleep after idle). "
+            "Wait ~30s and click **Refresh**. To start locally:\n"
+            "```\nuvicorn api.main:app --port 8000\n```"
+        )
 
     st.caption(f"Session: `{st.session_state.session_id[:8]}…`")
     st.divider()
@@ -197,7 +226,9 @@ with st.sidebar:
             reset_session()
             st.rerun()
     with col2:
-        st.button("🔄 Refresh", use_container_width=True, on_click=st.rerun)
+        if st.button("🔄 Refresh", use_container_width=True):
+            api_health.clear()
+            st.rerun()
 
     st.divider()
     st.markdown(
