@@ -86,7 +86,6 @@ Customer Query
 | ⚡ **SSE Streaming** | Token-by-token streaming from FastAPI → Streamlit via Server-Sent Events |
 | 💾 **MongoDB Persistence** | Full session history and query analytics stored asynchronously via motor |
 | 📊 **Live Analytics** | Real-time usage stats: sessions, queries, top questions, avg session length |
-| 📈 **Admin Dashboard** | Password-gated Plotly dashboard: queries/day, intent mix, p50/p95 latency, 👍/👎 ratio |
 | 👍 **Feedback loop** | Per-answer thumbs up/down, stored for quality tracking |
 | 💡 **Smart follow-ups** | LLM-generated follow-up question chips after each reply |
 | 🎯 **Confidence + latency** | Confidence meter, intent pill, and server latency shown inline |

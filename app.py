@@ -55,7 +55,7 @@ EXAMPLE_QUESTIONS = [
     ("🔐", "How do I reset my password?"),
     ("📦", "Where is my order?"),
     ("💳", "How do I get a refund?"),
-    ("🛠️", "The app keeps crashing — what can I do?"),
+    ("🚫", "How do I cancel my subscription?"),
 ]
 
 
@@ -306,6 +306,13 @@ def render_meta(meta: dict):
     )
 
 
+def _similarity_from_l2(l2: float) -> float:
+    """Convert FAISS L2 distance (normalized vectors) → cosine similarity in [0,1]."""
+    # text-embedding-3-small returns unit vectors, so ||a-b||² = 2 - 2·cos(θ)
+    # ⇒ cos = 1 - L2²/2.  Clamp for display.
+    return max(0.0, min(1.0, 1.0 - (l2 ** 2) / 2.0))
+
+
 def render_sources(sources: list[dict]):
     if not sources:
         return
@@ -314,12 +321,14 @@ def render_sources(sources: list[dict]):
             cls = "top" if i == 0 else ""
             meta = src.get("metadata", {})
             meta_bits = []
+            # Prefer real FAISS similarity; fall back gracefully
+            if src.get("score") is not None:
+                sim = _similarity_from_l2(float(src["score"]))
+                meta_bits.append(f'similarity: {sim:.2f}')
             if meta.get("topic"):
                 meta_bits.append(f'topic: {meta["topic"]}')
             if meta.get("source_query"):
-                meta_bits.append(f'q: {meta["source_query"][:60]}')
-            if meta.get("confidence_score") is not None:
-                meta_bits.append(f'score: {float(meta["confidence_score"]):.2f}')
+                meta_bits.append(f'matched q: {meta["source_query"][:60]}')
             meta_line = " · ".join(meta_bits) or "retrieved"
             rank = ["1st", "2nd", "3rd", "4th"][i]
             st.markdown(
@@ -423,8 +432,6 @@ with st.sidebar:
                 st.caption("🔥 Top questions")
                 for item in tops[:5]:
                     st.markdown(f"- {item['question'][:50]}… `×{item['count']}`")
-        st.divider()
-        st.page_link("pages/2_📊_Admin.py", label="Open admin dashboard →")
         st.divider()
 
     # Controls
