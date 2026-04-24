@@ -212,12 +212,19 @@ class LangChainRAG:
         -------
         dict
             answer           : str — model response
-            source_documents : list[dict] — retrieved docs (content + metadata)
+            source_documents : list[dict] — retrieved docs with similarity score
+            confidence       : float — top retrieval similarity (0–1)
+            condensed_query  : str — standalone rewrite used for retrieval
         """
         standalone = self._standalone_question(question)
 
-        # Retrieve source docs for the response payload
-        raw_docs = self._retriever.invoke(standalone)
+        # Retrieve source docs *with similarity scores* for confidence reporting
+        scored = self.vectorstore.similarity_search_with_score(standalone, k=4)
+        raw_docs = [d for d, _ in scored]
+        # FAISS L2 distance → cosine-ish similarity. Smaller = closer. Clamp to [0,1].
+        top_score = float(scored[0][1]) if scored else 1.0
+        confidence = max(0.0, min(1.0, 1.0 - top_score / 2.0))
+
         context  = "\n\n".join(
             f"[Source {i+1}] {doc.page_content}" for i, doc in enumerate(raw_docs)
         )
@@ -236,12 +243,36 @@ class LangChainRAG:
         self._update_memory(question, answer)
 
         return {
-            "answer": answer,
+            "answer":           answer,
             "source_documents": [
-                {"content": doc.page_content, "metadata": doc.metadata}
-                for doc in raw_docs
+                {
+                    "content":  doc.page_content,
+                    "metadata": doc.metadata,
+                    "score":    float(score),
+                }
+                for (doc, score) in scored
             ],
+            "confidence":      confidence,
+            "condensed_query": standalone,
         }
+
+    # ── Public API — follow-up suggestions ────────────────────────────────────
+
+    def suggest_followups(self, last_answer: str, n: int = 3) -> list[str]:
+        """Ask the LLM to generate *n* plausible follow-up questions."""
+        prompt = ChatPromptTemplate.from_messages([
+            (
+                "system",
+                f"Given the assistant's last answer, propose exactly {n} short, "
+                "distinct follow-up questions a customer might realistically ask "
+                "next. Return them as a newline-separated list — no numbering, "
+                "no quotes, no extra text.",
+            ),
+            ("human", "Last answer:\n{answer}"),
+        ])
+        raw = (prompt | self._llm | StrOutputParser()).invoke({"answer": last_answer})
+        candidates = [line.strip(" -•*0123456789.") for line in raw.splitlines()]
+        return [c for c in candidates if c][:n]
 
     # ── Public API — async streaming ──────────────────────────────────────────
 

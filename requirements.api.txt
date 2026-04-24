@@ -19,3 +19,6 @@ pydantic>=2.7.0
 
 motor>=3.4.0
 pymongo>=4.7.0
+
+# Per-IP rate limiting middleware for FastAPI
+slowapi>=0.1.9

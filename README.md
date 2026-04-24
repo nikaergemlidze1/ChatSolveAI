@@ -86,8 +86,15 @@ Customer Query
 | ⚡ **SSE Streaming** | Token-by-token streaming from FastAPI → Streamlit via Server-Sent Events |
 | 💾 **MongoDB Persistence** | Full session history and query analytics stored asynchronously via motor |
 | 📊 **Live Analytics** | Real-time usage stats: sessions, queries, top questions, avg session length |
+| 📈 **Admin Dashboard** | Password-gated Plotly dashboard: queries/day, intent mix, p50/p95 latency, 👍/👎 ratio |
+| 👍 **Feedback loop** | Per-answer thumbs up/down, stored for quality tracking |
+| 💡 **Smart follow-ups** | LLM-generated follow-up question chips after each reply |
+| 🎯 **Confidence + latency** | Confidence meter, intent pill, and server latency shown inline |
+| 🛡️ **Rate limiting** | Per-IP 120 req/min via `slowapi` to protect the API |
+| ⬇️ **Chat export** | Download any conversation as Markdown |
 | 🐳 **Docker Compose** | One-command deployment of all 3 services with health checks |
-| 🔁 **Jenkins CI/CD** | Automated lint → test → Docker build → push pipeline |
+| ☁️ **Hugging Face Spaces** | Backend hosted on HF Spaces (Docker SDK); frontend on Streamlit Cloud |
+| 🔁 **GitHub Actions CI** | Automated lint + pytest on every push and PR |
 | 📓 **Research Notebook** | 5-task educational notebook with evaluations (P@1, MRR, NDCG) |
 
 ---

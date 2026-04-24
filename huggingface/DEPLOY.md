@@ -95,6 +95,27 @@ The sidebar should now say ✅ *API connected*. First query after a long idle
 may take ~20–30s while the Space wakes up — the new health check handles
 that gracefully.
 
+## 5b. Re-deploying after new features land
+
+When you pull a new `main` that adds backend modules (e.g. `slowapi`,
+`/feedback`, `/suggest`, admin analytics), push them to the Space:
+
+```bash
+cd hf-space
+
+# Copy new / changed files from the main repo
+cp ../Dockerfile                  .
+cp ../requirements.api.txt        .
+cp -r ../api                      .        # picks up middleware.py + new routes
+cp -r ../pipeline                 .        # picks up intent_lite.py
+
+git add .
+git commit -m "Add advanced features: feedback, suggest, analytics, rate limit"
+git push
+```
+
+HF rebuilds automatically. No secrets change needed.
+
 ## 6. (Optional) Decommission Render
 
 Once the HF deployment is verified:

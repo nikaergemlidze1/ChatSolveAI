@@ -61,6 +61,14 @@ def logs_col():
     return get_db()["query_logs"]
 
 
+def feedback_col():
+    return get_db()["feedback"]
+
+
+def latency_col():
+    return get_db()["latency"]
+
+
 # ── Session helpers ───────────────────────────────────────────────────────────
 
 async def ensure_session(session_id: str) -> None:
@@ -101,6 +109,8 @@ async def log_query(
     query:      str,
     answer:     str,
     sources:    list[str],
+    intent:     str   = "general",
+    confidence: float = 0.0,
 ) -> None:
     """Insert a single query-answer log entry."""
     await logs_col().insert_one(
@@ -109,9 +119,77 @@ async def log_query(
             "query":      query,
             "answer":     answer,
             "sources":    sources,
+            "intent":     intent,
+            "confidence": confidence,
             "timestamp":  _now(),
         }
     )
+
+
+# ── Feedback ──────────────────────────────────────────────────────────────────
+
+async def log_feedback(
+    session_id: str,
+    query:      str,
+    answer:     str,
+    rating:     str,
+    note:       str | None = None,
+) -> None:
+    await feedback_col().insert_one(
+        {
+            "session_id": session_id,
+            "query":      query,
+            "answer":     answer,
+            "rating":     rating,
+            "note":       note,
+            "timestamp":  _now(),
+        }
+    )
+
+
+async def feedback_counts() -> dict[str, int]:
+    pipeline = [{"$group": {"_id": "$rating", "count": {"$sum": 1}}}]
+    out = {"up": 0, "down": 0}
+    async for doc in feedback_col().aggregate(pipeline):
+        if doc["_id"] in out:
+            out[doc["_id"]] = doc["count"]
+    return out
+
+
+# ── Latency ───────────────────────────────────────────────────────────────────
+
+async def log_latency(path: str, method: str, ms: float, status: int) -> None:
+    await latency_col().insert_one(
+        {
+            "path":      path,
+            "method":    method,
+            "ms":        ms,
+            "status":    status,
+            "timestamp": _now(),
+        }
+    )
+
+
+async def latency_stats(path_prefix: str = "/chat") -> dict:
+    """Aggregate p50, p95, avg over the last 500 samples for *path_prefix*."""
+    import statistics
+    samples: list[float] = []
+    cursor = (
+        latency_col()
+        .find({"path": {"$regex": f"^{path_prefix}"}, "status": {"$lt": 500}})
+        .sort("timestamp", DESCENDING)
+        .limit(500)
+    )
+    async for doc in cursor:
+        samples.append(float(doc["ms"]))
+    if not samples:
+        return {"p50": 0.0, "p95": 0.0, "avg": 0.0, "n": 0}
+    samples.sort()
+    n = len(samples)
+    p50 = samples[n // 2]
+    p95 = samples[min(n - 1, int(n * 0.95))]
+    avg = sum(samples) / n
+    return {"p50": round(p50, 1), "p95": round(p95, 1), "avg": round(avg, 1), "n": n}
 
 
 # ── Analytics helpers ─────────────────────────────────────────────────────────
@@ -153,6 +231,65 @@ async def top_questions(limit: int = 10) -> list[dict]:
     async for doc in logs_col().aggregate(pipeline):
         results.append(doc)
     return results
+
+
+async def queries_timeseries(days: int = 14) -> list[dict]:
+    """Daily query counts for the last *days* days (UTC)."""
+    from datetime import date, timedelta
+    start = datetime.combine(date.today() - timedelta(days=days - 1),
+                             datetime.min.time(), tzinfo=timezone.utc)
+    pipeline = [
+        {"$match":   {"timestamp": {"$gte": start}}},
+        {"$group": {
+            "_id": {"$dateToString": {"format": "%Y-%m-%d", "date": "$timestamp"}},
+            "count": {"$sum": 1},
+        }},
+        {"$sort":    {"_id": 1}},
+        {"$project": {"date": "$_id", "count": 1, "_id": 0}},
+    ]
+    out = []
+    async for doc in logs_col().aggregate(pipeline):
+        out.append(doc)
+    # Fill gaps so charts are continuous
+    by_date = {d["date"]: d["count"] for d in out}
+    result  = []
+    for i in range(days):
+        d = (date.today() - timedelta(days=days - 1 - i)).isoformat()
+        result.append({"date": d, "count": by_date.get(d, 0)})
+    return result
+
+
+async def intent_distribution() -> list[dict]:
+    pipeline = [
+        {"$group":   {"_id": "$intent", "count": {"$sum": 1}}},
+        {"$sort":    {"count": DESCENDING}},
+        {"$project": {"intent": "$_id", "count": 1, "_id": 0}},
+    ]
+    out = []
+    async for doc in logs_col().aggregate(pipeline):
+        out.append({"intent": doc.get("intent") or "general", "count": doc["count"]})
+    return out
+
+
+async def recent_sessions(limit: int = 10) -> list[dict]:
+    """Return latest sessions with last message + turn count."""
+    cursor = (
+        sessions_col()
+        .find({})
+        .sort("created_at", DESCENDING)
+        .limit(limit)
+    )
+    out = []
+    async for doc in cursor:
+        msgs = doc.get("messages", [])
+        last = msgs[-1]["content"] if msgs else ""
+        out.append({
+            "session_id":   doc["_id"],
+            "created_at":   doc["created_at"],
+            "turn_count":   len(msgs),
+            "last_message": (last[:80] + "…") if len(last) > 80 else last,
+        })
+    return out
 
 
 # ── Internal ──────────────────────────────────────────────────────────────────

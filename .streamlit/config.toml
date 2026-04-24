@@ -1,2 +1,10 @@
 [client]
 toolbarMode = "hidden"
+
+[theme]
+base            = "dark"
+primaryColor    = "#4F8BF9"
+backgroundColor = "#0E1117"
+secondaryBackgroundColor = "#161A23"
+textColor       = "#E5E7EB"
+font            = "sans serif"
