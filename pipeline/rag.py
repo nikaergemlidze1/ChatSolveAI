@@ -128,10 +128,15 @@ class LangChainRAG:
     3. Format the QA prompt with retrieved context + history.
     4. Call ChatOpenAI and parse the string output.
 
+    Memory
+    ------
+    Conversation history is stored *per session_id* in an internal dict so
+    multiple concurrent users don't share or stomp on each other's context.
+    Sessions evict on an LRU basis once `max_sessions` is exceeded.
+
     Attributes
     ----------
     vectorstore : FAISS  — exposed for direct similarity_search calls.
-    chat_history : list[BaseMessage]  — rolling conversation memory.
     """
 
     def __init__(
@@ -139,8 +144,10 @@ class LangChainRAG:
         documents: list[Document],
         k_retrieval: int = 4,
         memory_window: int = 10,
+        max_sessions: int = 500,
     ) -> None:
         self._memory_window = memory_window
+        self._max_sessions  = max_sessions
 
         # ── Embeddings + vectorstore ──────────────────────────────────────────
         self._embeddings = OpenAIEmbeddings(
@@ -168,8 +175,10 @@ class LangChainRAG:
             api_key=OPENAI_API_KEY,
         )
 
-        # ── Conversation memory ───────────────────────────────────────────────
-        self.chat_history: list[BaseMessage] = []
+        # ── Conversation memory (per session_id) ──────────────────────────────
+        # OrderedDict gives O(1) move_to_end for LRU eviction.
+        from collections import OrderedDict
+        self._sessions: "OrderedDict[str, list[BaseMessage]]" = OrderedDict()
 
         # ── LCEL sub-chains ───────────────────────────────────────────────────
         # Condense chain: rewrites follow-up Qs into standalone queries
@@ -179,27 +188,31 @@ class LangChainRAG:
             | StrOutputParser()
         )
 
-        # QA chain: retrieves + answers
-        self._qa_chain = (
-            {
-                "context":      RunnableLambda(self._retrieve_and_format),
-                "chat_history": RunnableLambda(lambda _: self.chat_history),
-                "question":     RunnablePassthrough(),
-            }
-            | _QA_PROMPT
-            | self._llm
-            | StrOutputParser()
-        )
-
     # ── Internal helpers ──────────────────────────────────────────────────────
 
-    def _standalone_question(self, question: str) -> str:
+    def _history_for(self, session_id: str | None) -> list[BaseMessage]:
+        """Return (and refresh LRU position of) the per-session history list."""
+        sid = session_id or "_anonymous"
+        if sid in self._sessions:
+            self._sessions.move_to_end(sid)
+            return self._sessions[sid]
+        # Evict oldest session if over capacity
+        while len(self._sessions) >= self._max_sessions:
+            self._sessions.popitem(last=False)
+        self._sessions[sid] = []
+        return self._sessions[sid]
+
+    def _standalone_question(
+        self,
+        question: str,
+        history: list[BaseMessage],
+    ) -> str:
         """Rephrase *question* into a standalone query if history exists."""
-        if not self.chat_history:
+        if not history:
             return question
         return self._condense_chain.invoke({
             "question":     question,
-            "chat_history": self.chat_history,
+            "chat_history": history,
         })
 
     def _retrieve_and_format(self, question: str) -> str:
@@ -210,20 +223,33 @@ class LangChainRAG:
             for i, doc in enumerate(docs)
         )
 
-    def _update_memory(self, question: str, answer: str) -> None:
-        """Add a turn to history; trim to rolling window."""
-        self.chat_history.append(HumanMessage(content=question))
-        self.chat_history.append(AIMessage(content=answer))
+    def _update_memory(
+        self,
+        history: list[BaseMessage],
+        question: str,
+        answer: str,
+    ) -> None:
+        """Add a turn to *history* (in place); trim to rolling window."""
+        history.append(HumanMessage(content=question))
+        history.append(AIMessage(content=answer))
         # Keep only the last memory_window turns (each turn = 2 messages)
         max_messages = self._memory_window * 2
-        if len(self.chat_history) > max_messages:
-            self.chat_history = self.chat_history[-max_messages:]
+        if len(history) > max_messages:
+            del history[: len(history) - max_messages]
 
     # ── Public API — blocking ─────────────────────────────────────────────────
 
-    def chat(self, question: str) -> dict:
+    def chat(self, question: str, session_id: str | None = None) -> dict:
         """
         Process one user turn (blocking).
+
+        Parameters
+        ----------
+        question   : the user's raw input
+        session_id : isolates conversation memory per session; passing the
+                     same id across turns keeps follow-up context, while
+                     omitting it (or passing ``None``) bundles all anonymous
+                     callers into a single shared bucket.
 
         Returns
         -------
@@ -233,7 +259,8 @@ class LangChainRAG:
             confidence       : float — top retrieval similarity (0–1)
             condensed_query  : str — standalone rewrite used for retrieval
         """
-        standalone = self._standalone_question(question)
+        history = self._history_for(session_id)
+        standalone = self._standalone_question(question, history)
 
         # Retrieve source docs *with similarity scores* for confidence reporting
         scored = self.vectorstore.similarity_search_with_score(standalone, k=4)
@@ -258,7 +285,7 @@ class LangChainRAG:
         answer = (
             {
                 "context":      RunnableLambda(lambda _: context),
-                "chat_history": RunnableLambda(lambda _: self.chat_history),
+                "chat_history": RunnableLambda(lambda _: history),
                 "question":     RunnablePassthrough(),
             }
             | _QA_PROMPT
@@ -266,7 +293,7 @@ class LangChainRAG:
             | StrOutputParser()
         ).invoke(standalone)
 
-        self._update_memory(question, answer)
+        self._update_memory(history, question, answer)
 
         return {
             "answer":           answer,
@@ -302,7 +329,11 @@ class LangChainRAG:
 
     # ── Public API — async streaming ──────────────────────────────────────────
 
-    async def astream(self, question: str) -> AsyncIterator[str]:
+    async def astream(
+        self,
+        question: str,
+        session_id: str | None = None,
+    ) -> AsyncIterator[str]:
         """
         Async generator — yields text tokens as they arrive from the LLM.
 
@@ -312,12 +343,18 @@ class LangChainRAG:
         Compatible with:
         - FastAPI StreamingResponse (SSE)
         - Streamlit st.write_stream()
+
+        Parameters
+        ----------
+        session_id : same per-session memory isolation as :meth:`chat`.
         """
+        history = self._history_for(session_id)
+
         # Step 1: condense follow-up question using chat history (async)
-        if self.chat_history:
+        if history:
             standalone = await self._condense_chain.ainvoke({
                 "question":     question,
-                "chat_history": self.chat_history,
+                "chat_history": history,
             })
         else:
             standalone = question
@@ -338,7 +375,7 @@ class LangChainRAG:
         # Step 3: format prompt with real values (no lambdas / closures)
         messages = _QA_PROMPT.format_messages(
             context=context,
-            chat_history=self.chat_history,
+            chat_history=history,
             question=standalone,
         )
 
@@ -349,7 +386,7 @@ class LangChainRAG:
             full_answer += token
             yield token
 
-        self._update_memory(question, full_answer)
+        self._update_memory(history, question, full_answer)
 
     # ── Utilities ─────────────────────────────────────────────────────────────
 
@@ -361,9 +398,18 @@ class LangChainRAG:
             for doc, score in docs
         ]
 
-    def reset(self) -> None:
-        """Clear conversation memory."""
-        self.chat_history = []
+    def reset(self, session_id: str | None = None) -> None:
+        """
+        Clear conversation memory.
+
+        - With *session_id*: clears only that session's history (safe: never
+          touches other concurrent users).
+        - Without: clears every session. Reserved for tests / admin tools.
+        """
+        if session_id is None:
+            self._sessions.clear()
+            return
+        self._sessions.pop(session_id, None)
 
 
 # ── Predefined responses loader ───────────────────────────────────────────────

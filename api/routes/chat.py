@@ -36,7 +36,7 @@ async def chat(payload: ChatRequest, request: Request):
     await db.ensure_session(payload.session_id)
     await db.append_message(payload.session_id, "user", payload.query)
 
-    result = rag.chat(payload.query)
+    result = rag.chat(payload.query, session_id=payload.session_id)
 
     answer     = result["answer"]
     sources    = [s["content"] for s in result.get("source_documents", [])]
@@ -87,7 +87,7 @@ async def chat_stream(payload: ChatRequest, request: Request):
         # Opening metadata event — frontend can show intent/condensed query early
         yield f"data: {json.dumps({'event': 'meta', 'intent': intent})}\n\n"
 
-        async for token in rag.astream(payload.query):
+        async for token in rag.astream(payload.query, session_id=payload.session_id):
             full_answer.append(token)
             yield f"data: {json.dumps({'token': token})}\n\n"
 
@@ -118,6 +118,7 @@ async def chat_stream(payload: ChatRequest, request: Request):
 )
 async def delete_session(session_id: str, request: Request):
     rag = _get_rag(request)
-    rag.reset()
+    # Per-session reset only — must NOT wipe memory for other concurrent users.
+    rag.reset(session_id=session_id)
     deleted = await db.delete_session(session_id)
     return {"session_id": session_id, "logs_deleted": deleted}

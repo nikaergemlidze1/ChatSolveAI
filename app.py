@@ -182,12 +182,14 @@ def _init_state():
         "messages":     [],
         "last_sources": [],
         "last_meta":    {},
-        "followups":    [],
         "pending_query": None,
     }
     for k, v in defaults.items():
         if k not in st.session_state:
             st.session_state[k] = v
+    # Drop legacy global 'followups' if present from older session.
+    # Follow-up chips are now stored per assistant message.
+    st.session_state.pop("followups", None)
 
 _init_state()
 
@@ -209,27 +211,45 @@ def api_health() -> bool:
 
 
 def call_chat(query: str) -> dict | None:
-    """Blocking call — returns the full enriched response dict."""
-    try:
-        r = requests.post(
-            f"{API_URL}/chat",
-            json={"session_id": st.session_state.session_id, "query": query},
-            timeout=60,
-        )
-        if r.ok:
-            return r.json()
-        st.error(f"API error {r.status_code}: {r.text[:200]}")
-    except requests.RequestException as e:
-        st.error(f"Network error: {e}")
+    """Blocking call — returns the full enriched response dict.
+
+    Two attempts: HF Spaces free tier sleeps after ~5 min idle, so the first
+    request after a long pause can hit a TCP reset / 503 while the container
+    starts. A single retry with a short pause covers that case cleanly.
+    """
+    last_err = None
+    for attempt in range(2):
+        try:
+            r = requests.post(
+                f"{API_URL}/chat",
+                json={"session_id": st.session_state.session_id, "query": query},
+                timeout=60,
+            )
+            if r.ok:
+                return r.json()
+            # 5xx during cold-start → retry once
+            if 500 <= r.status_code < 600 and attempt == 0:
+                last_err = f"{r.status_code}: {r.text[:120]}"
+                time.sleep(3)
+                continue
+            st.error(f"API error {r.status_code}: {r.text[:200]}")
+            return None
+        except requests.RequestException as e:
+            last_err = str(e)
+            if attempt == 0:
+                time.sleep(3)
+                continue
+    st.error(f"Network error after retry: {last_err}")
     return None
 
 
 def call_suggest(last_answer: str) -> list[str]:
+    """Best-effort follow-up suggestions; failures are silent (chips just don't show)."""
     try:
         r = requests.post(
             f"{API_URL}/suggest",
             json={"last_answer": last_answer, "n": 3},
-            timeout=20,
+            timeout=25,
         )
         if r.ok:
             return r.json().get("suggestions", [])
@@ -255,26 +275,92 @@ def call_feedback(query: str, answer: str, rating: str) -> bool:
         return False
 
 
+@st.cache_data(ttl=20)
 def fetch_analytics() -> dict | None:
+    """Sidebar live analytics. Cached briefly so fast reruns don't hammer the API."""
     try:
-        r = requests.get(f"{API_URL}/analytics", timeout=5)
+        r = requests.get(f"{API_URL}/analytics", timeout=8)
         return r.json() if r.ok else None
     except Exception:
         return None
 
 
-def reset_session():
-    sid = st.session_state.session_id
-    try:
-        requests.delete(f"{API_URL}/chat/session/{sid}", timeout=5)
-    except Exception:
-        pass
+def _purge_chat_state():
+    """
+    Clear every Streamlit-side state key tied to the conversation, including
+    feedback ratings (``fb_<idx>``), follow-up button keys, and any legacy
+    ``followups`` global so a fresh session never inherits old chips.
+    """
+    stale_prefixes = ("fb_", "up_", "down_", "chip_", "followup_", "fu_")
+    for key in list(st.session_state.keys()):
+        if isinstance(key, str) and key.startswith(stale_prefixes):
+            del st.session_state[key]
+    st.session_state.pop("followups", None)  # legacy global, now per-message
     st.session_state.session_id    = str(uuid.uuid4())
     st.session_state.messages      = []
     st.session_state.last_sources  = []
     st.session_state.last_meta     = {}
-    st.session_state.followups     = []
     st.session_state.pending_query = None
+
+
+def reset_session():
+    """
+    Reset client-side conversation. Local state is cleared FIRST so a cold /
+    unreachable backend cannot freeze the button — the user always sees the
+    transcript disappear immediately. The DELETE call is best-effort after.
+    Streamlit auto-reruns when this is used as a button ``on_click``.
+    """
+    sid = st.session_state.session_id
+    _purge_chat_state()
+    try:
+        fetch_analytics.clear()
+        api_health.clear()
+    except Exception:
+        pass
+    try:
+        # Fire-and-forget cleanup with tight timeout; server-side LRU will
+        # reclaim the slot anyway if this fails.
+        requests.delete(f"{API_URL}/chat/session/{sid}", timeout=2)
+    except Exception:
+        pass
+
+
+def _refresh_ui():
+    """
+    Sidebar Refresh callback — clears caches so the next run re-checks the API
+    and reloads analytics. Also nukes any parked ``pending_query`` so a
+    half-finished cold-start click cannot resurrect after the reload.
+    """
+    try:
+        api_health.clear()
+        fetch_analytics.clear()
+    except Exception:
+        pass
+    st.session_state.pending_query = None
+
+
+def _queue_query(query: str):
+    """Button-click callback — queue a query and let Streamlit auto-rerun."""
+    if not query:
+        return
+    st.session_state.pending_query = query
+
+
+def _record_feedback(idx: int, rating: str):
+    """
+    Feedback callback — one click is enough because Streamlit auto-reruns
+    after a callback finishes, and the next run sees ``fb_<idx>`` already set
+    and renders the 'You rated…' caption instead of the buttons.
+    """
+    msgs = st.session_state.messages
+    if idx <= 0 or idx >= len(msgs):
+        return
+    try:
+        call_feedback(msgs[idx - 1]["content"], msgs[idx]["content"], rating)
+    except Exception:
+        # Never block the UI on feedback — rating still records locally.
+        pass
+    st.session_state[f"fb_{idx}"] = rating
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -372,6 +458,15 @@ def submit_query(query: str):
         result = call_chat(query)
 
     if not result:
+        # Roll back the orphan user turn so the transcript doesn't end on
+        # an unanswered message — user can click the same chip / retype and
+        # retry cleanly once the backend is awake.
+        if (
+            st.session_state.messages
+            and st.session_state.messages[-1]["role"] == "user"
+            and st.session_state.messages[-1]["content"] == query
+        ):
+            st.session_state.messages.pop()
         return
 
     answer     = result["answer"]
@@ -382,17 +477,22 @@ def submit_query(query: str):
         "latency_ms": result.get("latency_ms", 0),
         "condensed_query": result.get("condensed_query", query),
     }
+
+    # Fire follow-up suggestions inline so they're stored ON the message.
+    # That way each assistant message owns its chips — clearing messages
+    # (e.g. via "New chat") removes the chips with them, and there's no
+    # global followups state that can leak into the next session.
+    suggestions = call_suggest(answer)
+
     st.session_state.messages.append({
-        "role":    "assistant",
-        "content": answer,
-        "sources": sources,
-        "meta":    meta,
+        "role":     "assistant",
+        "content":  answer,
+        "sources":  sources,
+        "meta":     meta,
+        "followups": suggestions,
     })
     st.session_state.last_sources = sources
     st.session_state.last_meta    = meta
-
-    # Fire-and-forget follow-up suggestions (cheap, speeds next turn)
-    st.session_state.followups = call_suggest(answer)
 
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
@@ -434,16 +534,25 @@ with st.sidebar:
                     st.markdown(f"- {item['question'][:50]}… `×{item['count']}`")
         st.divider()
 
-    # Controls
+    # Controls — use on_click callbacks so Streamlit handles the rerun itself
+    # (avoids the "click twice before it takes effect" class of bugs).
     col1, col2 = st.columns(2)
     with col1:
-        if st.button("🗑 New chat", use_container_width=True):
-            reset_session()
-            st.rerun()
+        st.button(
+            "🗑 New chat",
+            key="btn_new_chat",
+            use_container_width=True,
+            on_click=reset_session,
+            help="Clears the conversation and starts a fresh session.",
+        )
     with col2:
-        if st.button("🔄 Refresh", use_container_width=True):
-            api_health.clear()
-            st.rerun()
+        st.button(
+            "🔄 Refresh",
+            key="btn_refresh",
+            use_container_width=True,
+            on_click=_refresh_ui,
+            help="Re-checks the API and reloads sidebar analytics.",
+        )
 
     # Export
     if st.session_state.messages:
@@ -480,19 +589,35 @@ if not st.session_state.messages:
     for i, (emoji, q) in enumerate(EXAMPLE_QUESTIONS):
         with cols[i % 2]:
             st.markdown('<div class="chip-btn">', unsafe_allow_html=True)
-            if st.button(f"{emoji}   {q}", key=f"chip_{i}", use_container_width=True):
-                st.session_state.pending_query = q
+            st.button(
+                f"{emoji}   {q}",
+                key=f"chip_{i}",
+                use_container_width=True,
+                on_click=_queue_query,
+                args=(q,),
+            )
             st.markdown('</div>', unsafe_allow_html=True)
 
 
 # Handle a queued query BEFORE rendering history so the new turn shows up
-if st.session_state.pending_query and healthy:
-    q = st.session_state.pending_query
-    st.session_state.pending_query = None
-    submit_query(q)
+if st.session_state.pending_query:
+    if healthy:
+        q = st.session_state.pending_query
+        st.session_state.pending_query = None
+        submit_query(q)
+    else:
+        # Backend asleep / unreachable — surface it instead of silently
+        # parking the query, and drop it so the user can retry after Refresh.
+        st.warning(
+            "Backend is waking up and didn't answer in time. "
+            "Click **🔄 Refresh** in the sidebar in a few seconds, then retry."
+        )
+        st.session_state.pending_query = None
 
 
 # Render conversation history
+last_idx = len(st.session_state.messages) - 1
+sid_short = st.session_state.session_id[:8]
 for idx, msg in enumerate(st.session_state.messages):
     avatar = USER_AVATAR if msg["role"] == "user" else ASSISTANT_AVATAR
     with st.chat_message(msg["role"], avatar=avatar):
@@ -501,42 +626,46 @@ for idx, msg in enumerate(st.session_state.messages):
             render_meta(msg.get("meta", {}))
             render_sources(msg.get("sources", []))
 
-            # Feedback row
+            # Feedback row — on_click callbacks so one click is enough.
             fb_key = f"fb_{idx}"
             if st.session_state.get(fb_key) is None:
                 c1, c2, _ = st.columns([1, 1, 8])
-                if c1.button("👍", key=f"up_{idx}", help="Good answer"):
-                    call_feedback(
-                        st.session_state.messages[idx - 1]["content"],
-                        msg["content"], "up",
-                    )
-                    st.session_state[fb_key] = "up"
-                    st.toast("Thanks for the feedback!", icon="✅")
-                if c2.button("👎", key=f"down_{idx}", help="Needs work"):
-                    call_feedback(
-                        st.session_state.messages[idx - 1]["content"],
-                        msg["content"], "down",
-                    )
-                    st.session_state[fb_key] = "down"
-                    st.toast("Feedback recorded — thanks!", icon="📝")
+                c1.button(
+                    "👍",
+                    key=f"up_{idx}",
+                    help="Good answer",
+                    on_click=_record_feedback,
+                    args=(idx, "up"),
+                )
+                c2.button(
+                    "👎",
+                    key=f"down_{idx}",
+                    help="Needs work",
+                    on_click=_record_feedback,
+                    args=(idx, "down"),
+                )
             else:
                 rating = st.session_state[fb_key]
                 st.caption(f"You rated this answer: {'👍' if rating == 'up' else '👎'}")
 
-
-# Follow-up suggestion chips (only after the last assistant message)
-if st.session_state.followups and st.session_state.messages \
-        and st.session_state.messages[-1]["role"] == "assistant":
-    st.markdown("**💡 Suggested follow-ups**")
-    cols = st.columns(len(st.session_state.followups))
-    for i, q in enumerate(st.session_state.followups):
-        with cols[i]:
-            st.markdown('<div class="followup-chip">', unsafe_allow_html=True)
-            if st.button(q, key=f"followup_{i}_{len(st.session_state.messages)}"):
-                st.session_state.pending_query = q
-                st.session_state.followups = []
-                st.rerun()
-            st.markdown('</div>', unsafe_allow_html=True)
+            # Follow-up chips: render ONLY for the latest assistant message,
+            # and ONLY from this message's own stored list. Older assistant
+            # messages keep their data but don't render chips (their chance
+            # is gone — the conversation has moved on).
+            followups = msg.get("followups") or []
+            if idx == last_idx and followups:
+                st.markdown("**💡 Suggested follow-ups**")
+                cols = st.columns(len(followups))
+                for i, q in enumerate(followups):
+                    with cols[i]:
+                        st.markdown('<div class="followup-chip">', unsafe_allow_html=True)
+                        st.button(
+                            q,
+                            key=f"fu_{sid_short}_{idx}_{i}",
+                            on_click=_queue_query,
+                            args=(q,),
+                        )
+                        st.markdown('</div>', unsafe_allow_html=True)
 
 
 # Input box (guarded behind health)
@@ -544,6 +673,5 @@ if prompt := st.chat_input("Ask about orders, billing, account, or technical iss
     if not healthy:
         st.error("Cannot send message — API is not reachable.")
         st.stop()
-    st.session_state.pending_query = prompt
-    st.session_state.followups = []
+    _queue_query(prompt)
     st.rerun()
