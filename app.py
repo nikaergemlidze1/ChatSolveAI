@@ -182,12 +182,14 @@ def _init_state():
         "messages":     [],
         "last_sources": [],
         "last_meta":    {},
-        "followups":    [],
         "pending_query": None,
     }
     for k, v in defaults.items():
         if k not in st.session_state:
             st.session_state[k] = v
+    # Drop legacy global 'followups' if present from older session.
+    # Follow-up chips are now stored per assistant message.
+    st.session_state.pop("followups", None)
 
 _init_state()
 
@@ -286,18 +288,18 @@ def fetch_analytics() -> dict | None:
 def _purge_chat_state():
     """
     Clear every Streamlit-side state key tied to the conversation, including
-    feedback ratings (``fb_<idx>``) and follow-up button keys that would
-    otherwise leak into a fresh session and pre-mark new replies as rated.
+    feedback ratings (``fb_<idx>``), follow-up button keys, and any legacy
+    ``followups`` global so a fresh session never inherits old chips.
     """
-    stale_prefixes = ("fb_", "up_", "down_", "chip_", "followup_")
+    stale_prefixes = ("fb_", "up_", "down_", "chip_", "followup_", "fu_")
     for key in list(st.session_state.keys()):
         if isinstance(key, str) and key.startswith(stale_prefixes):
             del st.session_state[key]
+    st.session_state.pop("followups", None)  # legacy global, now per-message
     st.session_state.session_id    = str(uuid.uuid4())
     st.session_state.messages      = []
     st.session_state.last_sources  = []
     st.session_state.last_meta     = {}
-    st.session_state.followups     = []
     st.session_state.pending_query = None
 
 
@@ -326,9 +328,8 @@ def reset_session():
 def _refresh_ui():
     """
     Sidebar Refresh callback — clears caches so the next run re-checks the API
-    and reloads analytics. Also nukes any parked ``pending_query`` + stale
-    follow-up chips so a half-finished cold-start click cannot resurrect
-    after the reload.
+    and reloads analytics. Also nukes any parked ``pending_query`` so a
+    half-finished cold-start click cannot resurrect after the reload.
     """
     try:
         api_health.clear()
@@ -336,7 +337,6 @@ def _refresh_ui():
     except Exception:
         pass
     st.session_state.pending_query = None
-    st.session_state.followups     = []
 
 
 def _queue_query(query: str):
@@ -344,7 +344,6 @@ def _queue_query(query: str):
     if not query:
         return
     st.session_state.pending_query = query
-    st.session_state.followups     = []
 
 
 def _record_feedback(idx: int, rating: str):
@@ -478,17 +477,22 @@ def submit_query(query: str):
         "latency_ms": result.get("latency_ms", 0),
         "condensed_query": result.get("condensed_query", query),
     }
+
+    # Fire follow-up suggestions inline so they're stored ON the message.
+    # That way each assistant message owns its chips — clearing messages
+    # (e.g. via "New chat") removes the chips with them, and there's no
+    # global followups state that can leak into the next session.
+    suggestions = call_suggest(answer)
+
     st.session_state.messages.append({
-        "role":    "assistant",
-        "content": answer,
-        "sources": sources,
-        "meta":    meta,
+        "role":     "assistant",
+        "content":  answer,
+        "sources":  sources,
+        "meta":     meta,
+        "followups": suggestions,
     })
     st.session_state.last_sources = sources
     st.session_state.last_meta    = meta
-
-    # Fire-and-forget follow-up suggestions (cheap, speeds next turn)
-    st.session_state.followups = call_suggest(answer)
 
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
@@ -612,6 +616,8 @@ if st.session_state.pending_query:
 
 
 # Render conversation history
+last_idx = len(st.session_state.messages) - 1
+sid_short = st.session_state.session_id[:8]
 for idx, msg in enumerate(st.session_state.messages):
     avatar = USER_AVATAR if msg["role"] == "user" else ASSISTANT_AVATAR
     with st.chat_message(msg["role"], avatar=avatar):
@@ -642,25 +648,24 @@ for idx, msg in enumerate(st.session_state.messages):
                 rating = st.session_state[fb_key]
                 st.caption(f"You rated this answer: {'👍' if rating == 'up' else '👎'}")
 
-
-# Follow-up suggestion chips (only after the last assistant message).
-# Key includes the session id + message count so a fresh "New chat" cannot
-# inherit a leftover widget click-state from the previous session.
-if st.session_state.followups and st.session_state.messages \
-        and st.session_state.messages[-1]["role"] == "assistant":
-    st.markdown("**💡 Suggested follow-ups**")
-    cols = st.columns(len(st.session_state.followups))
-    sid_short = st.session_state.session_id[:8]
-    for i, q in enumerate(st.session_state.followups):
-        with cols[i]:
-            st.markdown('<div class="followup-chip">', unsafe_allow_html=True)
-            st.button(
-                q,
-                key=f"followup_{sid_short}_{len(st.session_state.messages)}_{i}",
-                on_click=_queue_query,
-                args=(q,),
-            )
-            st.markdown('</div>', unsafe_allow_html=True)
+            # Follow-up chips: render ONLY for the latest assistant message,
+            # and ONLY from this message's own stored list. Older assistant
+            # messages keep their data but don't render chips (their chance
+            # is gone — the conversation has moved on).
+            followups = msg.get("followups") or []
+            if idx == last_idx and followups:
+                st.markdown("**💡 Suggested follow-ups**")
+                cols = st.columns(len(followups))
+                for i, q in enumerate(followups):
+                    with cols[i]:
+                        st.markdown('<div class="followup-chip">', unsafe_allow_html=True)
+                        st.button(
+                            q,
+                            key=f"fu_{sid_short}_{idx}_{i}",
+                            on_click=_queue_query,
+                            args=(q,),
+                        )
+                        st.markdown('</div>', unsafe_allow_html=True)
 
 
 # Input box (guarded behind health)
