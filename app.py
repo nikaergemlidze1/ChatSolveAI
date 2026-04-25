@@ -647,7 +647,7 @@ st.markdown(
 # this, Streamlit Cloud has been observed to keep stale chat_message
 # DOM nodes from the previous conversation visible after "New chat".
 chat_holder = st.empty()
-
+chat_holder.empty()
 with chat_holder.container():
     # 1. Handle a queued query FIRST — before any chip / history render.
     if st.session_state.pending_query:
