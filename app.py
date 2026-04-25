@@ -16,6 +16,7 @@ from __future__ import annotations
 import io
 import json
 import os
+import threading
 import time
 import uuid
 from datetime import datetime
@@ -179,6 +180,7 @@ st.markdown("""
 def _init_state():
     defaults = {
         "session_id":   str(uuid.uuid4()),
+        "conv_id":      str(uuid.uuid4())[:8],   # bumps on every "New chat"
         "messages":     [],
         "last_sources": [],
         "last_meta":    {},
@@ -290,6 +292,10 @@ def _purge_chat_state():
     Clear every Streamlit-side state key tied to the conversation, including
     feedback ratings (``fb_<idx>``), follow-up button keys, and any legacy
     ``followups`` global so a fresh session never inherits old chips.
+
+    Bumps ``conv_id`` so all chat-area widget keys change between renders —
+    this forces Streamlit to drop the old DOM positions instead of trying to
+    diff them, which avoids ghost messages surviving a "New chat" click.
     """
     stale_prefixes = ("fb_", "up_", "down_", "chip_", "followup_", "fu_")
     for key in list(st.session_state.keys()):
@@ -297,17 +303,29 @@ def _purge_chat_state():
             del st.session_state[key]
     st.session_state.pop("followups", None)  # legacy global, now per-message
     st.session_state.session_id    = str(uuid.uuid4())
+    st.session_state.conv_id       = str(uuid.uuid4())[:8]
     st.session_state.messages      = []
     st.session_state.last_sources  = []
     st.session_state.last_meta     = {}
     st.session_state.pending_query = None
 
 
+def _fire_and_forget_delete(sid: str) -> None:
+    """Background-thread DELETE — server LRU handles the slot anyway."""
+    def _go():
+        try:
+            requests.delete(f"{API_URL}/chat/session/{sid}", timeout=5)
+        except Exception:
+            pass
+    threading.Thread(target=_go, daemon=True).start()
+
+
 def reset_session():
     """
-    Reset client-side conversation. Local state is cleared FIRST so a cold /
-    unreachable backend cannot freeze the button — the user always sees the
-    transcript disappear immediately. The DELETE call is best-effort after.
+    Reset client-side conversation. Local state is cleared FIRST and the
+    server-side DELETE is fired on a background thread — the button click
+    is now instant, so a sleeping HF Space cannot freeze the UI even for a
+    second. Server-side LRU reclaims the slot regardless.
     Streamlit auto-reruns when this is used as a button ``on_click``.
     """
     sid = st.session_state.session_id
@@ -317,12 +335,7 @@ def reset_session():
         api_health.clear()
     except Exception:
         pass
-    try:
-        # Fire-and-forget cleanup with tight timeout; server-side LRU will
-        # reclaim the slot anyway if this fails.
-        requests.delete(f"{API_URL}/chat/session/{sid}", timeout=2)
-    except Exception:
-        pass
+    _fire_and_forget_delete(sid)
 
 
 def _refresh_ui():
@@ -349,8 +362,8 @@ def _queue_query(query: str):
 def _record_feedback(idx: int, rating: str):
     """
     Feedback callback — one click is enough because Streamlit auto-reruns
-    after a callback finishes, and the next run sees ``fb_<idx>`` already set
-    and renders the 'You rated…' caption instead of the buttons.
+    after a callback finishes, and the next run sees ``fb_<conv_id>_<idx>``
+    already set and renders the 'You rated…' caption instead of the buttons.
     """
     msgs = st.session_state.messages
     if idx <= 0 or idx >= len(msgs):
@@ -360,7 +373,8 @@ def _record_feedback(idx: int, rating: str):
     except Exception:
         # Never block the UI on feedback — rating still records locally.
         pass
-    st.session_state[f"fb_{idx}"] = rating
+    conv_id = st.session_state.get("conv_id", "")
+    st.session_state[f"fb_{conv_id}_{idx}"] = rating
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -582,16 +596,19 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# Example-question chips (only visible on fresh conversations)
+# Example-question chips (only visible on fresh conversations).
+# Keys carry conv_id so a fresh conversation never inherits widget click-state
+# from a previous one — a leftover click can otherwise fire after rerun.
 if not st.session_state.messages:
     st.markdown("**👋 Try one of these to get started:**")
     cols = st.columns(2)
+    _conv = st.session_state.conv_id
     for i, (emoji, q) in enumerate(EXAMPLE_QUESTIONS):
         with cols[i % 2]:
             st.markdown('<div class="chip-btn">', unsafe_allow_html=True)
             st.button(
                 f"{emoji}   {q}",
-                key=f"chip_{i}",
+                key=f"chip_{_conv}_{i}",
                 use_container_width=True,
                 on_click=_queue_query,
                 args=(q,),
@@ -615,9 +632,11 @@ if st.session_state.pending_query:
         st.session_state.pending_query = None
 
 
-# Render conversation history
+# Render conversation history. All chat-area widget keys carry the current
+# conv_id so a "New chat" click forces Streamlit to allocate fresh widgets
+# rather than trying to reuse the previous conversation's DOM positions.
 last_idx = len(st.session_state.messages) - 1
-sid_short = st.session_state.session_id[:8]
+conv_id  = st.session_state.conv_id
 for idx, msg in enumerate(st.session_state.messages):
     avatar = USER_AVATAR if msg["role"] == "user" else ASSISTANT_AVATAR
     with st.chat_message(msg["role"], avatar=avatar):
@@ -627,19 +646,19 @@ for idx, msg in enumerate(st.session_state.messages):
             render_sources(msg.get("sources", []))
 
             # Feedback row — on_click callbacks so one click is enough.
-            fb_key = f"fb_{idx}"
+            fb_key = f"fb_{conv_id}_{idx}"
             if st.session_state.get(fb_key) is None:
                 c1, c2, _ = st.columns([1, 1, 8])
                 c1.button(
                     "👍",
-                    key=f"up_{idx}",
+                    key=f"up_{conv_id}_{idx}",
                     help="Good answer",
                     on_click=_record_feedback,
                     args=(idx, "up"),
                 )
                 c2.button(
                     "👎",
-                    key=f"down_{idx}",
+                    key=f"down_{conv_id}_{idx}",
                     help="Needs work",
                     on_click=_record_feedback,
                     args=(idx, "down"),
@@ -661,7 +680,7 @@ for idx, msg in enumerate(st.session_state.messages):
                         st.markdown('<div class="followup-chip">', unsafe_allow_html=True)
                         st.button(
                             q,
-                            key=f"fu_{sid_short}_{idx}_{i}",
+                            key=f"fu_{conv_id}_{idx}_{i}",
                             on_click=_queue_query,
                             args=(q,),
                         )
