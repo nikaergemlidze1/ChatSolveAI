@@ -597,6 +597,26 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+# Handle a queued query FIRST — before any other UI renders. If we don't,
+# a chip click sets pending_query → rerun → chip-block runs while messages
+# is still [] (renders chips) → THEN submit_query appends to messages →
+# the history loop also renders. Result: chips + the new Q&A both visible
+# on the same frame, looking exactly like "New chat didn't clear".
+if st.session_state.pending_query:
+    if healthy:
+        q = st.session_state.pending_query
+        st.session_state.pending_query = None
+        submit_query(q)
+    else:
+        # Backend asleep / unreachable — surface it instead of silently
+        # parking the query, and drop it so the user can retry after Refresh.
+        st.warning(
+            "Backend is waking up and didn't answer in time. "
+            "Click **🔄 Refresh** in the sidebar in a few seconds, then retry."
+        )
+        st.session_state.pending_query = None
+
+
 # Example-question chips (only visible on fresh conversations).
 # Keys carry conv_id so a fresh conversation never inherits widget click-state
 # from a previous one — a leftover click can otherwise fire after rerun.
@@ -615,22 +635,6 @@ if not st.session_state.messages:
                 args=(q,),
             )
             st.markdown('</div>', unsafe_allow_html=True)
-
-
-# Handle a queued query BEFORE rendering history so the new turn shows up
-if st.session_state.pending_query:
-    if healthy:
-        q = st.session_state.pending_query
-        st.session_state.pending_query = None
-        submit_query(q)
-    else:
-        # Backend asleep / unreachable — surface it instead of silently
-        # parking the query, and drop it so the user can retry after Refresh.
-        st.warning(
-            "Backend is waking up and didn't answer in time. "
-            "Click **🔄 Refresh** in the sidebar in a few seconds, then retry."
-        )
-        st.session_state.pending_query = None
 
 
 # Render conversation history. All chat-area widget keys carry the current
