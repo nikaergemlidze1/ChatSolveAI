@@ -23,6 +23,7 @@ from datetime import datetime
 
 import requests
 import streamlit as st
+import streamlit.components.v1 as components
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -303,25 +304,34 @@ def _fire_and_forget_delete(sid: str) -> None:
 
 def _do_full_reset():
     """
-    Reset the entire chat surface. Called as ``on_click`` callback so
-    Streamlit handles the rerun itself — there is no explicit
-    ``st.rerun()`` here, because calling that from a button handler that
-    is *already* in the middle of a rerun cycle can cause Streamlit Cloud
-    to half-commit the new frame on top of the previous DOM.
+    Mark the conversation for hard reset. The actual reset (clear state +
+    force a browser reload) is handled at the very TOP of the next script
+    run, in ``_process_hard_reset()``, before any chat-area widget paints.
 
-    Strategy:
-      1. Clear every cached API response.
-      2. Explicitly re-assign every conversation-related session_state
-         key (don't rely on ``st.session_state.clear()`` alone — empirical
-         evidence on Streamlit Cloud is that some widget-bound keys
-         survive ``clear()``).
-      3. Sweep stale widget keys (``fb_``, ``up_``, ``down_``, ``fu_``,
-         ``chip_``, ``followup_``) so a leftover click-state can't fire.
-      4. Bump a URL query parameter so Streamlit treats the next render
-         as a fresh navigation, which forces a full DOM rebuild rather
-         than a diff against the (now stale) previous frame.
-      5. Fire the server-side DELETE on a daemon thread.
+    This two-step pattern is necessary because empirical evidence on
+    Streamlit Cloud is that ANY in-place clear (``st.session_state.clear``,
+    explicit re-assignment, ``st.empty()`` placeholders, query-param bumps,
+    ``st.rerun()`` from inside an on_click handler) can leave the
+    previous chat_message DOM nodes visible alongside the freshly
+    rendered example chips. The only thing that has actually worked is
+    a real browser navigation — which we trigger from the top of the
+    next run rather than from inside the click handler so the user
+    never sees a half-updated frame.
     """
+    st.session_state["_hard_reset_pending"] = True
+
+
+def _process_hard_reset():
+    """
+    Run at the very top of the script (after _init_state). If the flag
+    is set: wipe state, fire the server DELETE on a daemon thread, and
+    inject a one-shot iframe that triggers ``window.parent.location.reload()``.
+    ``st.stop()`` halts the rest of the run so nothing else paints
+    between the wipe and the reload.
+    """
+    if not st.session_state.pop("_hard_reset_pending", False):
+        return
+
     old_sid = st.session_state.get("session_id", "")
 
     try:
@@ -330,7 +340,7 @@ def _do_full_reset():
     except Exception:
         pass
 
-    # Step 2: explicit re-assignment.
+    # Explicit re-assignment of every conversation key.
     st.session_state["session_id"]    = str(uuid.uuid4())
     st.session_state["conv_id"]       = str(uuid.uuid4())[:8]
     st.session_state["messages"]      = []
@@ -339,7 +349,7 @@ def _do_full_reset():
     st.session_state["pending_query"] = None
     st.session_state.pop("followups", None)
 
-    # Step 3: sweep stale widget click-state.
+    # Sweep stale widget click-state.
     stale_prefixes = ("fb_", "up_", "down_", "fu_", "chip_", "followup_")
     for key in list(st.session_state.keys()):
         if isinstance(key, str) and key.startswith(stale_prefixes):
@@ -348,18 +358,25 @@ def _do_full_reset():
             except KeyError:
                 pass
 
-    # Step 4: force fresh navigation.
-    try:
-        st.query_params["c"] = str(uuid.uuid4())[:8]
-    except Exception:
-        try:
-            st.experimental_set_query_params(c=str(uuid.uuid4())[:8])
-        except Exception:
-            pass
-
-    # Step 5: server cleanup.
+    # Server-side cleanup on a daemon thread (instant, doesn't block).
     if old_sid:
         _fire_and_forget_delete(old_sid)
+
+    # Force a full browser navigation. The hidden iframe runs the JS
+    # immediately on mount; height=0 + display:none keeps it invisible.
+    components.html(
+        """
+        <style>html,body{margin:0;padding:0;height:0;overflow:hidden;}</style>
+        <script>
+          // Reload the parent (the actual Streamlit app frame), not the
+          // little iframe this script lives in. cache=true → use bfcache
+          // when possible so the reload is fast.
+          window.parent.location.reload();
+        </script>
+        """,
+        height=0,
+    )
+    st.stop()
 
 
 def _process_reset_signal():
@@ -389,9 +406,12 @@ def _queue_query(query: str):
     st.session_state.pending_query = query
 
 
-# Process any pending "New chat" signal NOW, before a single chat-area
-# widget renders. Placement matters: must be after fetch_analytics +
-# api_health are declared (so .clear() works) and before sidebar/main UI.
+# Process pending resets NOW, before a single chat-area widget renders.
+# Placement matters: must be after fetch_analytics + api_health are
+# declared (so .clear() works) and before sidebar / main UI.
+# _process_hard_reset() may call st.stop() — that's intentional; nothing
+# else should paint during the brief moment before window.parent.reload().
+_process_hard_reset()
 _process_reset_signal()
 
 
