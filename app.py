@@ -303,37 +303,63 @@ def _fire_and_forget_delete(sid: str) -> None:
 
 def _do_full_reset():
     """
-    Nuclear reset, called inline from the New chat button handler.
-    Uses Streamlit's official ``st.session_state.clear()`` to wipe every
-    key (including any widget click-state we forgot about), then re-seeds
-    just the session defaults. Server DELETE fires on a daemon thread so
-    a cold backend cannot freeze the click.
+    Reset the entire chat surface. Called as ``on_click`` callback so
+    Streamlit handles the rerun itself — there is no explicit
+    ``st.rerun()`` here, because calling that from a button handler that
+    is *already* in the middle of a rerun cycle can cause Streamlit Cloud
+    to half-commit the new frame on top of the previous DOM.
 
-    Also bumps a query-param (``?c=<uuid>``). On Streamlit Cloud the URL
-    change is treated as a fresh navigation, which makes the renderer
-    fully tear down and re-build the DOM rather than diffing against the
-    previous (stale) frame. Without this the user could occasionally
-    still see the previous transcript bleed through after a follow-up
-    click — that has been resistant to every state-clear approach.
+    Strategy:
+      1. Clear every cached API response.
+      2. Explicitly re-assign every conversation-related session_state
+         key (don't rely on ``st.session_state.clear()`` alone — empirical
+         evidence on Streamlit Cloud is that some widget-bound keys
+         survive ``clear()``).
+      3. Sweep stale widget keys (``fb_``, ``up_``, ``down_``, ``fu_``,
+         ``chip_``, ``followup_``) so a leftover click-state can't fire.
+      4. Bump a URL query parameter so Streamlit treats the next render
+         as a fresh navigation, which forces a full DOM rebuild rather
+         than a diff against the (now stale) previous frame.
+      5. Fire the server-side DELETE on a daemon thread.
     """
-    sid = st.session_state.get("session_id", "")
+    old_sid = st.session_state.get("session_id", "")
+
     try:
         fetch_analytics.clear()
         api_health.clear()
     except Exception:
         pass
-    st.session_state.clear()
-    _init_state()
+
+    # Step 2: explicit re-assignment.
+    st.session_state["session_id"]    = str(uuid.uuid4())
+    st.session_state["conv_id"]       = str(uuid.uuid4())[:8]
+    st.session_state["messages"]      = []
+    st.session_state["last_sources"]  = []
+    st.session_state["last_meta"]     = {}
+    st.session_state["pending_query"] = None
+    st.session_state.pop("followups", None)
+
+    # Step 3: sweep stale widget click-state.
+    stale_prefixes = ("fb_", "up_", "down_", "fu_", "chip_", "followup_")
+    for key in list(st.session_state.keys()):
+        if isinstance(key, str) and key.startswith(stale_prefixes):
+            try:
+                del st.session_state[key]
+            except KeyError:
+                pass
+
+    # Step 4: force fresh navigation.
     try:
         st.query_params["c"] = str(uuid.uuid4())[:8]
     except Exception:
-        # Older Streamlit versions: experimental_set_query_params fallback
         try:
             st.experimental_set_query_params(c=str(uuid.uuid4())[:8])
         except Exception:
             pass
-    if sid:
-        _fire_and_forget_delete(sid)
+
+    # Step 5: server cleanup.
+    if old_sid:
+        _fire_and_forget_delete(old_sid)
 
 
 def _process_reset_signal():
@@ -558,31 +584,28 @@ with st.sidebar:
                     st.markdown(f"- {item['question'][:50]}… `×{item['count']}`")
         st.divider()
 
-    # Controls. New chat uses direct-handler + st.rerun() for maximum
-    # determinism: clear state THIS script run, then explicitly re-execute
-    # so the next render starts from a clean slate. Bypassing on_click here
-    # is intentional — on Streamlit Cloud the on_click → auto-rerun path
-    # would sometimes paint the new (empty) frame on top of the old DOM,
-    # leaving ghost messages visible.
+    # Controls — on_click callbacks. Streamlit guarantees the callback
+    # runs and the next render sees the new state; we deliberately do
+    # NOT call st.rerun() inside the callback because doing so from a
+    # handler that is already in a rerun cycle can cause Streamlit Cloud
+    # to commit the new frame on top of the previous DOM (ghost frame).
     col1, col2 = st.columns(2)
     with col1:
-        if st.button(
+        st.button(
             "🗑 New chat",
             key="btn_new_chat",
             use_container_width=True,
+            on_click=_do_full_reset,
             help="Clears the conversation and starts a fresh session.",
-        ):
-            _do_full_reset()
-            st.rerun()
+        )
     with col2:
-        if st.button(
+        st.button(
             "🔄 Refresh",
             key="btn_refresh",
             use_container_width=True,
+            on_click=_refresh_ui,
             help="Re-checks the API and reloads sidebar analytics.",
-        ):
-            _refresh_ui()
-            st.rerun()
+        )
 
     # Export
     if st.session_state.messages:
