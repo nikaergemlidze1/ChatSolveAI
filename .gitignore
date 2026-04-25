@@ -31,3 +31,5 @@ query_responses.json
 # ── IDE ───────────────────────────────────────────────────────────────────────
 .vscode/
 .idea/
+.claude/worktrees/
+hf-space/

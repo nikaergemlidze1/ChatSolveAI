@@ -304,34 +304,25 @@ def _fire_and_forget_delete(sid: str) -> None:
 
 def _do_full_reset():
     """
-    Mark the conversation for hard reset. The actual reset (clear state +
-    force a browser reload) is handled at the very TOP of the next script
-    run, in ``_process_hard_reset()``, before any chat-area widget paints.
+    Reset the entire chat surface. Called as ``on_click`` callback so
+    Streamlit handles the rerun itself — there is no explicit
+    ``st.rerun()`` here, because calling that from a button handler that
+    is *already* in the middle of a rerun cycle can cause Streamlit Cloud
+    to half-commit the new frame on top of the previous DOM.
 
-    This two-step pattern is necessary because empirical evidence on
-    Streamlit Cloud is that ANY in-place clear (``st.session_state.clear``,
-    explicit re-assignment, ``st.empty()`` placeholders, query-param bumps,
-    ``st.rerun()`` from inside an on_click handler) can leave the
-    previous chat_message DOM nodes visible alongside the freshly
-    rendered example chips. The only thing that has actually worked is
-    a real browser navigation — which we trigger from the top of the
-    next run rather than from inside the click handler so the user
-    never sees a half-updated frame.
+    Strategy:
+      1. Clear every cached API response.
+      2. Explicitly re-assign every conversation-related session_state
+         key (don't rely on ``st.session_state.clear()`` alone — empirical
+         evidence on Streamlit Cloud is that some widget-bound keys
+         survive ``clear()``).
+      3. Sweep stale widget keys (``fb_``, ``up_``, ``down_``, ``fu_``,
+         ``chip_``, ``followup_``) so a leftover click-state can't fire.
+      4. Bump a URL query parameter so Streamlit treats the next render
+         as a fresh navigation, which forces a full DOM rebuild rather
+         than a diff against the (now stale) previous frame.
+      5. Fire the server-side DELETE on a daemon thread.
     """
-    st.session_state["_hard_reset_pending"] = True
-
-
-def _process_hard_reset():
-    """
-    Run at the very top of the script (after _init_state). If the flag
-    is set: wipe state, fire the server DELETE on a daemon thread, and
-    inject a one-shot iframe that triggers ``window.parent.location.reload()``.
-    ``st.stop()`` halts the rest of the run so nothing else paints
-    between the wipe and the reload.
-    """
-    if not st.session_state.pop("_hard_reset_pending", False):
-        return
-
     old_sid = st.session_state.get("session_id", "")
 
     try:
@@ -663,7 +654,7 @@ st.markdown(
 # this, Streamlit Cloud has been observed to keep stale chat_message
 # DOM nodes from the previous conversation visible after "New chat".
 chat_holder = st.empty()
-
+chat_holder.empty()
 with chat_holder.container():
     # 1. Handle a queued query FIRST — before any chip / history render.
     if st.session_state.pending_query:
