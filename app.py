@@ -201,8 +201,6 @@ def _init_state():
     for k, v in defaults.items():
         if k not in st.session_state:
             st.session_state[k] = v
-    if "_reset" not in st.session_state:
-        st.session_state["_reset"] = False
     st.session_state.pop("followups", None)
 
 _init_state()
@@ -304,10 +302,6 @@ def _fire_and_forget_delete(sid: str) -> None:
 
 
 # ── Callbacks ─────────────────────────────────────────────────────────────────
-
-def _do_full_reset():
-    """Button callback: just flag that a reset should happen."""
-    st.session_state["_reset"] = True
 
 
 def _refresh_ui():
@@ -493,10 +487,11 @@ def _perform_full_reset():
         _fire_and_forget_delete(old_sid)
 
 
-# ← Apply reset HERE, after all functions are defined
-if st.session_state["_reset"]:
-    _perform_full_reset()
-    st.session_state["_reset"] = False
+# Reset is now triggered directly from the New-chat button handler
+# (see sidebar below). No flag-based indirection needed — calling
+# `_perform_full_reset()` then `st.rerun()` from inside the button
+# block is the same pattern FinSight AI uses for its "Clear Chat"
+# button, which works reliably on Streamlit Cloud.
 
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
@@ -581,13 +576,16 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-chat_holder = st.container(key=f"chatzone_{st.session_state.conv_id}")
+# Plain st.container — NO `key=` argument. The keyed-container approach
+# (`st.container(key=f"chatzone_{conv_id}")`) was the actual root cause
+# of the New-chat leak: bumping conv_id created a *new* keyed container
+# in the DOM but Streamlit did not remove the previous keyed container,
+# so its child `st.chat_message` widgets stayed painted alongside the
+# new (empty) container. FinSight AI's chat works because it uses the
+# plain container API — the same path used here now.
+chat_holder = st.container()
 
 with chat_holder:
-    # Debug line (remove when stable)
-    st.write("DEBUG messages:", len(st.session_state.messages),
-             "pending_query:", st.session_state.pending_query)
-
     if st.session_state.pending_query:
         if healthy:
             q = st.session_state.pending_query
