@@ -720,26 +720,36 @@ with chat_holder:
                         f"You rated this answer: {'👍' if rating == 'up' else '👎'}"
                     )
 
-                # Follow-up chips — only on the latest assistant message.
-                # Rendered as a SINGLE st.markdown blob containing plain
-                # HTML <a> chips (not st.button widgets). On "New chat"
-                # the messages list goes empty, this loop body never
-                # runs, the markdown element disappears, and Streamlit
-                # removes the entire chip block in one atomic DOM swap.
-                # No widget reconciliation = no stale chips can survive.
-                followups = msg.get("followups") or []
-                if idx == last_idx and followups:
-                    chips = "".join(
-                        f'<a class="fu-chip-link" href="?fu={urllib.parse.quote(q)}" '
-                        f'target="_self">{q}</a>'
-                        for q in followups
-                    )
-                    st.markdown(
-                        '<div style="margin-top:14px; font-weight:600; '
-                        'color:#c9b8ff;">💡 Suggested follow-ups</div>'
-                        f'<div class="fu-row">{chips}</div>',
-                        unsafe_allow_html=True,
-                    )
+    # 4. Follow-up chips — rendered into a DEDICATED st.empty() slot
+    #    that lives OUTSIDE the message loop (but still inside the
+    #    chat container). st.empty() is Streamlit's purpose-built
+    #    primitive for content swap: assigning new content replaces
+    #    the prior content atomically; assigning nothing leaves the
+    #    slot empty. This isolates chip rendering from the per-
+    #    message loop so the inner-loop diff bug that was leaving
+    #    stale chip DOM behind on Streamlit Cloud can't reach this
+    #    element. On "New chat" messages == [] → the conditional
+    #    below is False → `chips_slot` is never written to → its
+    #    content from the previous run is replaced by emptiness.
+    chips_slot = st.empty()
+    if (
+        st.session_state.messages
+        and st.session_state.messages[-1].get("role") == "assistant"
+    ):
+        last_msg  = st.session_state.messages[-1]
+        followups = last_msg.get("followups") or []
+        if followups:
+            chips = "".join(
+                f'<a class="fu-chip-link" href="?fu={urllib.parse.quote(q)}" '
+                f'target="_self">{q}</a>'
+                for q in followups
+            )
+            chips_slot.markdown(
+                '<div style="margin-top:14px; font-weight:600; '
+                'color:#c9b8ff;">💡 Suggested follow-ups</div>'
+                f'<div class="fu-row">{chips}</div>',
+                unsafe_allow_html=True,
+            )
 
 
 # Input box (guarded behind health). Lives outside the chat holder so
