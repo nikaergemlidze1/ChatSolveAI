@@ -302,30 +302,16 @@ def _fire_and_forget_delete(sid: str) -> None:
 
 def _do_full_reset():
     """
-    Mark the conversation for hard reset. The actual reset (clear state +
-    force a browser reload) is handled at the very TOP of the next script
-    run, in ``_process_hard_reset()``, before any chat-area widget paints.
-
-    This two-step pattern is necessary because empirical evidence on
-    Streamlit Cloud is that ANY in-place clear (``st.session_state.clear``,
-    explicit re-assignment, ``st.empty()`` placeholders, query-param bumps,
-    ``st.rerun()`` from inside an on_click handler) can leave the
-    previous chat_message DOM nodes visible alongside the freshly
-    rendered example chips. The only thing that has actually worked is
-    a real browser navigation — which we trigger from the top of the
-    next run rather than from inside the click handler so the user
-    never sees a half-updated frame.
+    Mark the conversation for hard reset. The actual reset is handled
+    at the very TOP of the next script run in ``_process_hard_reset()``.
     """
     st.session_state["_hard_reset_pending"] = True
 
 
 def _process_hard_reset():
     """
-    Run at the very top of the script (after _init_state). If the flag
-    is set: wipe all conversation state and let the script continue so
-    chat_holder re-renders with messages=[] — atomically replacing the
-    old chat content (messages, follow-up chips) with the example chips.
-    No browser reload; pure in-place Streamlit reset.
+    Wipe all conversation state and bump conv_id so the chat container
+    gets a new key – forcing Streamlit to create a fresh DOM.
     """
     if not st.session_state.pop("_hard_reset_pending", False):
         return
@@ -370,8 +356,7 @@ def _process_reset_signal():
 def _refresh_ui():
     """
     Sidebar Refresh callback — clears caches so the next run re-checks the API
-    and reloads analytics. Also nukes any parked ``pending_query`` so a
-    half-finished cold-start click cannot resurrect after the reload.
+    and reloads analytics. Also nukes any parked ``pending_query``.
     """
     try:
         api_health.clear()
@@ -388,28 +373,18 @@ def _queue_query(query: str):
     st.session_state.pending_query = query
 
 
-# Process pending resets NOW, before a single chat-area widget renders.
-# Placement matters: must be after fetch_analytics + api_health are
-# declared (so .clear() works) and before sidebar / main UI.
-# _process_hard_reset() may call st.stop() — that's intentional; nothing
-# else should paint during the brief moment before window.parent.reload().
+# Process pending resets NOW, before any chat-area widget renders.
 _process_hard_reset()
 _process_reset_signal()
 
 
 def _record_feedback(idx: int, rating: str):
-    """
-    Feedback callback — one click is enough because Streamlit auto-reruns
-    after a callback finishes, and the next run sees ``fb_<conv_id>_<idx>``
-    already set and renders the 'You rated…' caption instead of the buttons.
-    """
     msgs = st.session_state.messages
     if idx <= 0 or idx >= len(msgs):
         return
     try:
         call_feedback(msgs[idx - 1]["content"], msgs[idx]["content"], rating)
     except Exception:
-        # Never block the UI on feedback — rating still records locally.
         pass
     conv_id = st.session_state.get("conv_id", "")
     st.session_state[f"fb_{conv_id}_{idx}"] = rating
@@ -424,7 +399,6 @@ def confidence_class(c: float) -> str:
 
 
 def render_meta(meta: dict):
-    """Intent pill + confidence meter + latency (below an assistant message)."""
     if not meta:
         return
     intent = meta.get("intent", "general")
@@ -445,9 +419,6 @@ def render_meta(meta: dict):
 
 
 def _similarity_from_l2(l2: float) -> float:
-    """Convert FAISS L2 distance (normalized vectors) → cosine similarity in [0,1]."""
-    # text-embedding-3-small returns unit vectors, so ||a-b||² = 2 - 2·cos(θ)
-    # ⇒ cos = 1 - L2²/2.  Clamp for display.
     return max(0.0, min(1.0, 1.0 - (l2 ** 2) / 2.0))
 
 
@@ -459,7 +430,6 @@ def render_sources(sources: list[dict]):
             cls = "top" if i == 0 else ""
             meta = src.get("metadata", {})
             meta_bits = []
-            # Prefer real FAISS similarity; fall back gracefully
             if src.get("score") is not None:
                 sim = _similarity_from_l2(float(src["score"]))
                 meta_bits.append(f'similarity: {sim:.2f}')
@@ -480,7 +450,6 @@ def render_sources(sources: list[dict]):
 
 
 def build_transcript_md() -> str:
-    """Export the conversation as Markdown for download."""
     lines = [
         f"# ChatSolveAI Conversation",
         f"_Session `{st.session_state.session_id}` · "
@@ -501,7 +470,6 @@ def build_transcript_md() -> str:
 
 
 def submit_query(query: str):
-    """Central entry point — always used whether query came from chip or input."""
     if not query or not str(query).strip():
         return
     st.session_state.messages.append({"role": "user", "content": query})
@@ -510,9 +478,6 @@ def submit_query(query: str):
         result = call_chat(query)
 
     if not result:
-        # Roll back the orphan user turn so the transcript doesn't end on
-        # an unanswered message — user can click the same chip / retype and
-        # retry cleanly once the backend is awake.
         if (
             st.session_state.messages
             and st.session_state.messages[-1]["role"] == "user"
@@ -530,10 +495,6 @@ def submit_query(query: str):
         "condensed_query": result.get("condensed_query", query),
     }
 
-    # Fire follow-up suggestions inline so they're stored ON the message.
-    # That way each assistant message owns its chips — clearing messages
-    # (e.g. via "New chat") removes the chips with them, and there's no
-    # global followups state that can leak into the next session.
     suggestions = call_suggest(answer)
 
     st.session_state.messages.append({
@@ -586,11 +547,6 @@ with st.sidebar:
                     st.markdown(f"- {item['question'][:50]}… `×{item['count']}`")
         st.divider()
 
-    # Controls — on_click callbacks. Streamlit guarantees the callback
-    # runs and the next render sees the new state; we deliberately do
-    # NOT call st.rerun() inside the callback because doing so from a
-    # handler that is already in a rerun cycle can cause Streamlit Cloud
-    # to commit the new frame on top of the previous DOM (ghost frame).
     col1, col2 = st.columns(2)
     with col1:
         st.button(
@@ -609,7 +565,6 @@ with st.sidebar:
             help="Re-checks the API and reloads sidebar analytics.",
         )
 
-    # Export
     if st.session_state.messages:
         st.download_button(
             "⬇️ Export chat (.md)",
@@ -637,16 +592,10 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# All chat content (pending-query handler, example chips, message
-# history, follow-up chips) renders inside a SINGLE st.empty() slot.
-# This is the most reliable way to make Streamlit treat the chat zone
-# as one swap-out unit — on the next rerun the whole subtree is
-# replaced atomically rather than diffed element-by-element. Without
-# this, Streamlit Cloud has been observed to keep stale chat_message
-# DOM nodes from the previous conversation visible after "New chat".
-chat_holder = st.empty()
-chat_holder.empty()
-with chat_holder.container():
+# The key changes every time the conversation is reset, forcing Streamlit
+# to destroy the old chat container and build a fresh one – no stale DOM.
+chat_container = st.container(key=f"chat_{st.session_state.conv_id}")
+with chat_container:
     # 1. Handle a queued query FIRST — before any chip / history render.
     if st.session_state.pending_query:
         if healthy:
@@ -689,7 +638,6 @@ with chat_holder.container():
                 render_meta(msg.get("meta", {}))
                 render_sources(msg.get("sources", []))
 
-                # Feedback row — one click thanks to on_click callback.
                 fb_key = f"fb_{conv_id}_{idx}"
                 if st.session_state.get(fb_key) is None:
                     c1, c2, _ = st.columns([1, 1, 8])
@@ -713,7 +661,6 @@ with chat_holder.container():
                         f"You rated this answer: {'👍' if rating == 'up' else '👎'}"
                     )
 
-                # Follow-up chips — only on the latest assistant message.
                 followups = msg.get("followups") or []
                 if idx == last_idx and followups:
                     st.markdown("**💡 Suggested follow-ups**")
