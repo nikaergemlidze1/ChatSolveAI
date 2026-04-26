@@ -286,10 +286,10 @@ def _fire_and_forget_delete(sid: str) -> None:
     threading.Thread(target=_go, daemon=True).start()
 
 
-# ── Reset logic (guaranteed clean slate via full page navigation) ─────────────
+# ── Reset logic (guaranteed clean slate via parent‑page navigation) ───────────
 
 def _reset_conversation():
-    """Clear state and force the browser to reload the page completely."""
+    """Clear state and force a full browser reload for a guaranteed clean slate."""
     old_sid = st.session_state.get("session_id", "")
 
     # Clear cached API responses
@@ -303,11 +303,11 @@ def _reset_conversation():
     if old_sid:
         _fire_and_forget_delete(old_sid)
 
-    # Navigate to the same URL with a cache‑busting query parameter
+    # Navigate the PARENT window (not the Streamlit iframe) to a fresh URL
     components.html(
         f"""
         <script>
-            window.location.href = "?reset={int(time.time())}";
+            window.parent.location.href = window.parent.location.origin + window.parent.location.pathname + "?reset={int(time.time())}";
         </script>
         """,
         height=0,
@@ -544,7 +544,6 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# Standard container – no special key needed because the page reloads on reset
 with st.container():
     if st.session_state.pending_query:
         if healthy:
