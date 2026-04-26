@@ -24,6 +24,7 @@ http://localhost:8000/redoc (ReDoc)
 
 from __future__ import annotations
 
+import logging
 import os
 from contextlib import asynccontextmanager
 
@@ -39,35 +40,44 @@ from pipeline.rag import build_rag_chain
 from api import database as db
 from api.auth import verify_api_key
 from api.limits import limiter
+from api.logging_setup import setup_logging
 from api.middleware import LatencyMiddleware
 from api.routes.chat       import router as chat_router
 from api.routes.analytics  import router as analytics_router
 from api.routes.feedback   import router as feedback_router
 from api.routes.suggest    import router as suggest_router
+from api.sentry_setup import init_sentry
+
+# Initialise logging + Sentry as early as possible so import-time errors
+# in any module below are captured.
+setup_logging()
+init_sentry()
+
+logger = logging.getLogger(__name__)
 
 
 # ── Lifespan: build RAG chain once on startup ─────────────────────────────────
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    print("▶ Building LangChain RAG chain…")
+    logger.info("Building LangChain RAG chain")
     app.state.rag = build_rag_chain(
         corpus_path=data_path("chatbot_responses.json"),
         predefined_path=data_path("predefined_responses.json"),
     )
-    print("✓ RAG chain ready")
+    logger.info("RAG chain ready")
 
     # TTL indexes — MongoDB auto-prunes old logs / sessions per
     # MONGO_TTL_DAYS (default 90). Idempotent; safe to call every boot.
     try:
         await db.ensure_indexes()
-        print("✓ MongoDB TTL indexes ensured")
+        logger.info("MongoDB TTL indexes ensured")
     except Exception as exc:
         # Index creation must never block app startup; log and continue.
-        print(f"⚠  ensure_indexes failed: {exc!r}")
+        logger.warning("ensure_indexes failed: %r", exc)
 
     yield
-    print("◼ Shutting down")
+    logger.info("Shutting down")
 
 
 # ── App factory ───────────────────────────────────────────────────────────────

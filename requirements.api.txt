@@ -27,3 +27,6 @@ pymongo>=4.7.0,<5.0
 
 # Per-IP rate limiting middleware for FastAPI
 slowapi>=0.1.9,<0.2
+
+# Optional error reporting — only activates when SENTRY_DSN is set
+sentry-sdk[fastapi]>=2.0.0,<3.0
