@@ -146,10 +146,7 @@ st.markdown("""
     border-color: var(--accent) !important;
 }
 
-/* Follow-up suggestion chips — rendered as plain HTML <a> links (not
-   st.button) so they're part of a single st.markdown blob. When messages
-   clear on "New chat", the markdown element is removed atomically — no
-   stale st.button widgets can survive Streamlit Cloud's element diff. */
+/* Follow-up suggestion chips — rendered as plain HTML <a> links */
 .fu-row {
     display: flex;
     flex-wrap: wrap;
@@ -195,7 +192,7 @@ st.markdown("""
 def _init_state():
     defaults = {
         "session_id":   str(uuid.uuid4()),
-        "conv_id":      str(uuid.uuid4())[:8],   # bumps on every "New chat"
+        "conv_id":      str(uuid.uuid4())[:8],
         "messages":     [],
         "last_sources": [],
         "last_meta":    {},
@@ -204,8 +201,6 @@ def _init_state():
     for k, v in defaults.items():
         if k not in st.session_state:
             st.session_state[k] = v
-    # Drop legacy global 'followups' if present from older session.
-    # Follow-up chips are now stored per assistant message.
     st.session_state.pop("followups", None)
 
 _init_state()
@@ -228,12 +223,6 @@ def api_health() -> bool:
 
 
 def call_chat(query: str) -> dict | None:
-    """Blocking call — returns the full enriched response dict.
-
-    Two attempts: HF Spaces free tier sleeps after ~5 min idle, so the first
-    request after a long pause can hit a TCP reset / 503 while the container
-    starts. A single retry with a short pause covers that case cleanly.
-    """
     last_err = None
     for attempt in range(2):
         try:
@@ -244,7 +233,6 @@ def call_chat(query: str) -> dict | None:
             )
             if r.ok:
                 return r.json()
-            # 5xx during cold-start → retry once
             if 500 <= r.status_code < 600 and attempt == 0:
                 last_err = f"{r.status_code}: {r.text[:120]}"
                 time.sleep(3)
@@ -261,7 +249,6 @@ def call_chat(query: str) -> dict | None:
 
 
 def call_suggest(last_answer: str) -> list[str]:
-    """Best-effort follow-up suggestions; failures are silent (chips just don't show)."""
     try:
         r = requests.post(
             f"{API_URL}/suggest",
@@ -294,7 +281,6 @@ def call_feedback(query: str, answer: str, rating: str) -> bool:
 
 @st.cache_data(ttl=20)
 def fetch_analytics() -> dict | None:
-    """Sidebar live analytics. Cached briefly so fast reruns don't hammer the API."""
     try:
         r = requests.get(f"{API_URL}/analytics", timeout=8)
         return r.json() if r.ok else None
@@ -302,10 +288,7 @@ def fetch_analytics() -> dict | None:
         return None
 
 
-
-
 def _fire_and_forget_delete(sid: str) -> None:
-    """Background-thread DELETE — server LRU handles the slot anyway."""
     def _go():
         try:
             requests.delete(f"{API_URL}/chat/session/{sid}", timeout=5)
@@ -315,10 +298,7 @@ def _fire_and_forget_delete(sid: str) -> None:
 
 
 def _do_full_reset():
-    """
-    On_click callback for "New chat". Resets every conversation key in
-    session_state and bumps ``conv_id``. 
-    """
+    """On_click callback for 'New chat'. Resets session state variables."""
     old_sid = st.session_state.get("session_id", "")
 
     try:
@@ -327,7 +307,6 @@ def _do_full_reset():
     except Exception:
         pass
 
-    # Clear query parameters so leftover ?fu= doesn't re-trigger
     try:
         st.query_params.clear()
     except Exception:
@@ -336,8 +315,6 @@ def _do_full_reset():
         except Exception:
             pass
 
-    # Re-assign every conversation key. The conv_id bump is what forces
-    # the keyed chat container to swap identity on the next render.
     st.session_state["session_id"]    = str(uuid.uuid4())
     st.session_state["conv_id"]       = str(uuid.uuid4())[:8]
     st.session_state["messages"]      = []
@@ -346,7 +323,6 @@ def _do_full_reset():
     st.session_state["pending_query"] = None
     st.session_state.pop("followups", None)
 
-    # Sweep stale widget click-state from the previous conversation.
     stale_prefixes = ("fb_", "up_", "down_", "fu_", "chip_", "followup_")
     for key in list(st.session_state.keys()):
         if isinstance(key, str) and key.startswith(stale_prefixes):
@@ -355,17 +331,11 @@ def _do_full_reset():
             except KeyError:
                 pass
 
-    # Server-side cleanup on a daemon thread (instant, doesn't block).
     if old_sid:
         _fire_and_forget_delete(old_sid)
 
 
 def _refresh_ui():
-    """
-    Sidebar Refresh callback — clears caches so the next run re-checks the API
-    and reloads analytics. Also nukes any parked ``pending_query`` so a
-    half-finished cold-start click cannot resurrect after the reload.
-    """
     try:
         api_health.clear()
         fetch_analytics.clear()
@@ -375,22 +345,12 @@ def _refresh_ui():
 
 
 def _queue_query(query: str):
-    """Button-click callback — queue a query and let Streamlit auto-rerun."""
     if not query:
         return
     st.session_state.pending_query = query
 
 
-# "New chat" reset is handled directly inside ``_do_full_reset`` (an
-# on_click callback). No signal/iframe/reload step needed — the keyed
-# chat container below (see chat_holder) does the DOM-rebuild work.
-
-
-# Follow-up chip click handler. Chips are rendered as plain HTML <a>
-# links with ``?fu=<question>`` — clicking one updates the URL, which
-# Streamlit treats as a script rerun (no full page reload). Read the
-# param here, clear it from the URL so a refresh doesn't re-fire, and
-# queue the query just like a button click would.
+# URL Param interceptor for Follow-up chips
 _fu_param = st.query_params.get("fu")
 if _fu_param:
     if isinstance(_fu_param, list):
@@ -407,18 +367,12 @@ if _fu_param:
 
 
 def _record_feedback(idx: int, rating: str):
-    """
-    Feedback callback — one click is enough because Streamlit auto-reruns
-    after a callback finishes, and the next run sees ``fb_<conv_id>_<idx>``
-    already set and renders the 'You rated…' caption instead of the buttons.
-    """
     msgs = st.session_state.messages
     if idx <= 0 or idx >= len(msgs):
         return
     try:
         call_feedback(msgs[idx - 1]["content"], msgs[idx]["content"], rating)
     except Exception:
-        # Never block the UI on feedback — rating still records locally.
         pass
     conv_id = st.session_state.get("conv_id", "")
     st.session_state[f"fb_{conv_id}_{idx}"] = rating
@@ -433,7 +387,6 @@ def confidence_class(c: float) -> str:
 
 
 def render_meta(meta: dict):
-    """Intent pill + confidence meter + latency (below an assistant message)."""
     if not meta:
         return
     intent = meta.get("intent", "general")
@@ -454,9 +407,6 @@ def render_meta(meta: dict):
 
 
 def _similarity_from_l2(l2: float) -> float:
-    """Convert FAISS L2 distance (normalized vectors) → cosine similarity in [0,1]."""
-    # text-embedding-3-small returns unit vectors, so ||a-b||² = 2 - 2·cos(θ)
-    # ⇒ cos = 1 - L2²/2.  Clamp for display.
     return max(0.0, min(1.0, 1.0 - (l2 ** 2) / 2.0))
 
 
@@ -468,7 +418,6 @@ def render_sources(sources: list[dict]):
             cls = "top" if i == 0 else ""
             meta = src.get("metadata", {})
             meta_bits = []
-            # Prefer real FAISS similarity; fall back gracefully
             if src.get("score") is not None:
                 sim = _similarity_from_l2(float(src["score"]))
                 meta_bits.append(f'similarity: {sim:.2f}')
@@ -489,7 +438,6 @@ def render_sources(sources: list[dict]):
 
 
 def build_transcript_md() -> str:
-    """Export the conversation as Markdown for download."""
     lines = [
         f"# ChatSolveAI Conversation",
         f"_Session `{st.session_state.session_id}` · "
@@ -510,7 +458,6 @@ def build_transcript_md() -> str:
 
 
 def submit_query(query: str):
-    """Central entry point — always used whether query came from chip or input."""
     if not query or not str(query).strip():
         return
     st.session_state.messages.append({"role": "user", "content": query})
@@ -519,9 +466,6 @@ def submit_query(query: str):
         result = call_chat(query)
 
     if not result:
-        # Roll back the orphan user turn so the transcript doesn't end on
-        # an unanswered message — user can click the same chip / retype and
-        # retry cleanly once the backend is awake.
         if (
             st.session_state.messages
             and st.session_state.messages[-1]["role"] == "user"
@@ -539,10 +483,6 @@ def submit_query(query: str):
         "condensed_query": result.get("condensed_query", query),
     }
 
-    # Fire follow-up suggestions inline so they're stored ON the message.
-    # That way each assistant message owns its chips — clearing messages
-    # (e.g. via "New chat") removes the chips with them, and there's no
-    # global followups state that can leak into the next session.
     suggestions = call_suggest(answer)
 
     st.session_state.messages.append({
