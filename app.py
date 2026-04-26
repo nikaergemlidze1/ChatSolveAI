@@ -23,6 +23,7 @@ from datetime import datetime
 
 import requests
 import streamlit as st
+import streamlit.components.v1 as components
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -736,3 +737,55 @@ if prompt := st.chat_input("Ask about orders, billing, account, or technical iss
         st.stop()
     _queue_query(prompt)
     st.rerun()
+
+
+# ── DOM cleanup hook ──────────────────────────────────────────────────────────
+# Streamlit Cloud's element diff has been observed to keep DOM nodes from
+# the previous chat conversation visible *alongside* the freshly rendered
+# empty state after "New chat" — the Python state IS reset (example chips
+# render correctly), but stale `st.chat_message` bubbles and follow-up
+# `st.button` chips from the previous frame survive the diff.
+#
+# This component injects a one-shot DOM cleanup script. The keyed chat
+# container (`st.container(key=f"chatzone_{conv_id}")`) renders with
+# CSS class `st-key-chatzone_<conv_id>`. On every script run we look at
+# every element matching that class prefix and remove the ones whose
+# class does NOT match the *current* conv_id — those are stale leftovers
+# from a previous conversation.
+#
+# Running inside `components.html` puts the script in a srcdoc iframe
+# which is same-origin with the parent app, so `window.parent.document`
+# access works and the JS can directly mutate the parent DOM. This is
+# NOT a browser reload — only stale subtrees are removed; the current
+# render is left untouched.
+components.html(
+    f"""
+    <script>
+    (function() {{
+        const conv = {json.dumps(st.session_state.conv_id)};
+        const targetClass = "st-key-chatzone_" + conv;
+        const parent = window.parent && window.parent.document;
+        if (!parent) return;
+
+        function prune() {{
+            const all = parent.querySelectorAll('[class*="st-key-chatzone_"]');
+            all.forEach(el => {{
+                if (!el.classList.contains(targetClass)) {{
+                    el.remove();
+                }}
+            }});
+        }}
+
+        // Run immediately and again on the next animation frame to
+        // catch any stale nodes that Streamlit re-mounts after our
+        // first pass (it sometimes re-injects diffed elements during
+        // the post-render reconciliation step).
+        prune();
+        requestAnimationFrame(prune);
+        setTimeout(prune, 50);
+        setTimeout(prune, 200);
+    }})();
+    </script>
+    """,
+    height=0,
+)
