@@ -18,6 +18,7 @@ import json
 import os
 import threading
 import time
+import urllib.parse
 import uuid
 from datetime import datetime
 
@@ -145,17 +146,31 @@ st.markdown("""
     border-color: var(--accent) !important;
 }
 
-/* Follow-up suggestion chips (smaller, inline) */
-.followup-chip button {
-    background: rgba(142,107,255,0.10) !important;
-    border: 1px solid rgba(142,107,255,0.35) !important;
-    color: #c9b8ff !important;
-    font-size: 0.82rem !important;
-    padding: 4px 10px !important;
-    height: auto !important;
-    border-radius: 999px !important;
+/* Follow-up suggestion chips — rendered as plain HTML <a> links (not
+   st.button) so they're part of a single st.markdown blob. When messages
+   clear on "New chat", the markdown element is removed atomically — no
+   stale st.button widgets can survive Streamlit Cloud's element diff. */
+.fu-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 8px;
 }
-.followup-chip button:hover { background: rgba(142,107,255,0.22) !important; }
+.fu-chip-link {
+    display: inline-block;
+    background: rgba(142,107,255,0.10);
+    border: 1px solid rgba(142,107,255,0.35);
+    color: #c9b8ff !important;
+    font-size: 0.82rem;
+    padding: 6px 14px;
+    border-radius: 999px;
+    text-decoration: none !important;
+    transition: background 0.15s ease, border-color 0.15s ease;
+}
+.fu-chip-link:hover {
+    background: rgba(142,107,255,0.22);
+    border-color: rgba(142,107,255,0.6);
+}
 
 /* Feedback buttons */
 .fb-row { display: flex; gap: 6px; margin-top: 6px; }
@@ -366,6 +381,26 @@ def _queue_query(query: str):
 # "New chat" reset is handled directly inside ``_do_full_reset`` (an
 # on_click callback). No signal/iframe/reload step needed — the keyed
 # chat container below (see chat_holder) does the DOM-rebuild work.
+
+
+# Follow-up chip click handler. Chips are rendered as plain HTML <a>
+# links with ``?fu=<question>`` — clicking one updates the URL, which
+# Streamlit treats as a script rerun (no full page reload). Read the
+# param here, clear it from the URL so a refresh doesn't re-fire, and
+# queue the query just like a button click would.
+_fu_param = st.query_params.get("fu")
+if _fu_param:
+    if isinstance(_fu_param, list):
+        _fu_param = _fu_param[0] if _fu_param else None
+    if _fu_param:
+        try:
+            st.query_params.clear()
+        except Exception:
+            try:
+                st.experimental_set_query_params()
+            except Exception:
+                pass
+        st.session_state.pending_query = _fu_param
 
 
 def _record_feedback(idx: int, rating: str):
@@ -686,23 +721,25 @@ with chat_holder:
                     )
 
                 # Follow-up chips — only on the latest assistant message.
+                # Rendered as a SINGLE st.markdown blob containing plain
+                # HTML <a> chips (not st.button widgets). On "New chat"
+                # the messages list goes empty, this loop body never
+                # runs, the markdown element disappears, and Streamlit
+                # removes the entire chip block in one atomic DOM swap.
+                # No widget reconciliation = no stale chips can survive.
                 followups = msg.get("followups") or []
                 if idx == last_idx and followups:
-                    st.markdown("**💡 Suggested follow-ups**")
-                    cols = st.columns(len(followups))
-                    for i, q in enumerate(followups):
-                        with cols[i]:
-                            st.markdown(
-                                '<div class="followup-chip">',
-                                unsafe_allow_html=True,
-                            )
-                            st.button(
-                                q,
-                                key=f"fu_{conv_id}_{idx}_{i}",
-                                on_click=_queue_query,
-                                args=(q,),
-                            )
-                            st.markdown('</div>', unsafe_allow_html=True)
+                    chips = "".join(
+                        f'<a class="fu-chip-link" href="?fu={urllib.parse.quote(q)}" '
+                        f'target="_self">{q}</a>'
+                        for q in followups
+                    )
+                    st.markdown(
+                        '<div style="margin-top:14px; font-weight:600; '
+                        'color:#c9b8ff;">💡 Suggested follow-ups</div>'
+                        f'<div class="fu-row">{chips}</div>',
+                        unsafe_allow_html=True,
+                    )
 
 
 # Input box (guarded behind health). Lives outside the chat holder so
