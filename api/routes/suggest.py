@@ -6,12 +6,14 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Request
 
+from api.limits import limiter
 from api.models import SuggestRequest, SuggestResponse
 
 router = APIRouter(prefix="/suggest", tags=["suggest"])
 
 
 @router.post("", response_model=SuggestResponse)
+@limiter.limit("60/minute")
 async def suggest(payload: SuggestRequest, request: Request):
     rag = request.app.state.rag
     suggestions = rag.suggest_followups(payload.last_answer, n=payload.n)

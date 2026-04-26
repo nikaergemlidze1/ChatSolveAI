@@ -32,15 +32,23 @@ load_dotenv()
 # ── Config ────────────────────────────────────────────────────────────────────
 
 _SECRET_API_URL = None
+_SECRET_API_KEY = None
 try:
     _SECRET_API_URL = st.secrets.get("API_URL")
+    _SECRET_API_KEY = st.secrets.get("API_KEY")
 except Exception:
     pass
 
 API_URL = (_SECRET_API_URL or os.getenv("API_URL") or "https://Nikollass-chatsolveai-api.hf.space").rstrip("/")
+API_KEY = _SECRET_API_KEY or os.getenv("API_KEY") or ""
 
 HEALTH_TIMEOUT_S = int(os.getenv("API_HEALTH_TIMEOUT", "20"))
 HEALTH_RETRIES   = int(os.getenv("API_HEALTH_RETRIES", "2"))
+
+
+def _api_headers() -> dict[str, str]:
+    """Auth header for backend calls. Empty when API_KEY is unset (dev mode)."""
+    return {"X-API-Key": API_KEY} if API_KEY else {}
 
 USER_AVATAR      = "🧑"
 ASSISTANT_AVATAR = "🤖"
@@ -230,6 +238,7 @@ def call_chat(query: str) -> dict | None:
             r = requests.post(
                 f"{API_URL}/chat",
                 json={"session_id": st.session_state.session_id, "query": query},
+                headers=_api_headers(),
                 timeout=60,
             )
             if r.ok:
@@ -255,6 +264,7 @@ def call_suggest(last_answer: str) -> list[str]:
         r = requests.post(
             f"{API_URL}/suggest",
             json={"last_answer": last_answer, "n": 3},
+            headers=_api_headers(),
             timeout=25,
         )
         if r.ok:
@@ -274,6 +284,7 @@ def call_feedback(query: str, answer: str, rating: str) -> bool:
                 "answer":     answer,
                 "rating":     rating,
             },
+            headers=_api_headers(),
             timeout=10,
         )
         return r.ok
@@ -285,7 +296,11 @@ def _fire_and_forget_delete(sid: str) -> None:
     """Background-thread DELETE — server LRU handles the slot anyway."""
     def _go():
         try:
-            requests.delete(f"{API_URL}/chat/session/{sid}", timeout=5)
+            requests.delete(
+                f"{API_URL}/chat/session/{sid}",
+                headers=_api_headers(),
+                timeout=5,
+            )
         except Exception:
             pass
     threading.Thread(target=_go, daemon=True).start()

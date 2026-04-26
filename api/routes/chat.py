@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 
+from api.limits import limiter
 from api.models import ChatRequest, ChatResponse, SourceDocument
 from api import database as db
 from pipeline.intent_lite import tag_intent
@@ -29,6 +30,7 @@ def _get_rag(request: Request):
 # ── Blocking chat ─────────────────────────────────────────────────────────────
 
 @router.post("", response_model=ChatResponse, summary="Send a message (blocking)")
+@limiter.limit("20/minute")
 async def chat(payload: ChatRequest, request: Request):
     rag = _get_rag(request)
     t0 = time.perf_counter()
@@ -74,6 +76,7 @@ async def chat(payload: ChatRequest, request: Request):
 # ── Streaming chat ────────────────────────────────────────────────────────────
 
 @router.post("/stream", summary="Send a message (SSE streaming)")
+@limiter.limit("30/minute")
 async def chat_stream(payload: ChatRequest, request: Request):
     rag = _get_rag(request)
     intent = tag_intent(payload.query)

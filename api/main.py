@@ -24,19 +24,20 @@ http://localhost:8000/redoc (ReDoc)
 
 from __future__ import annotations
 
+import os
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from slowapi import Limiter
 from slowapi.errors import RateLimitExceeded
-from slowapi.util import get_remote_address
 
 from pipeline.config import data_path
 from pipeline.rag import build_rag_chain
 
+from api.auth import verify_api_key
+from api.limits import limiter
 from api.middleware import LatencyMiddleware
 from api.routes.chat       import router as chat_router
 from api.routes.analytics  import router as analytics_router
@@ -74,7 +75,9 @@ app = FastAPI(
 )
 
 # ── Rate limiting (per-IP) ────────────────────────────────────────────────────
-limiter = Limiter(key_func=get_remote_address, default_limits=["120/minute"])
+# `limiter` is defined in `api.limits` so per-route modules can import it
+# without circular dependency on this file. Per-route ceilings live next
+# to the routes themselves (see `@limiter.limit(...)` decorators).
 app.state.limiter = limiter
 
 
@@ -85,20 +88,37 @@ async def ratelimit_handler(request: Request, exc: RateLimitExceeded):
         content={"detail": f"Rate limit exceeded: {exc.detail}"},
     )
 
-# ── Middleware ────────────────────────────────────────────────────────────────
+# ── CORS ──────────────────────────────────────────────────────────────────────
+# Pin allowed origins via ALLOWED_ORIGINS env var (comma-separated list).
+# Defaults cover local Docker / Streamlit dev. Production: set the env var
+# to the actual Streamlit Cloud / HF Spaces frontend URL.
+_ALLOWED_ORIGINS = [
+    o.strip()
+    for o in os.getenv(
+        "ALLOWED_ORIGINS",
+        "http://localhost:8501,http://localhost:3000,http://127.0.0.1:8501",
+    ).split(",")
+    if o.strip()
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_ALLOWED_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "X-API-Key"],
 )
 app.add_middleware(LatencyMiddleware)
 
 # ── Routers ───────────────────────────────────────────────────────────────────
-app.include_router(chat_router)
-app.include_router(feedback_router)
-app.include_router(suggest_router)
+# Chat / feedback / suggest require X-API-Key (when API_KEY env var is set).
+# Analytics + health are public reads — protect those at the network layer
+# (HF Spaces secret URL, IP allow-list, etc.) if they need locking down.
+_AUTHED = [Depends(verify_api_key)]
+
+app.include_router(chat_router,     dependencies=_AUTHED)
+app.include_router(feedback_router, dependencies=_AUTHED)
+app.include_router(suggest_router,  dependencies=_AUTHED)
 app.include_router(analytics_router)
 
 
