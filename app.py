@@ -478,7 +478,16 @@ def _perform_full_reset():
 with st.sidebar:
     st.image("https://img.icons8.com/fluency/96/chatbot.png", width=64)
     st.title("ChatSolveAI")
-    st.caption("LangChain RAG · FastAPI · MongoDB")
+    # Tech stack lives at the top of the sidebar (single rendering site).
+    # Previously this was duplicated as a sidebar footer too — Streamlit
+    # Cloud was rendering the bottom block twice after `st.rerun()`
+    # regardless of element type (`st.markdown` with `<small><br></small>`,
+    # then `st.caption` with markdown soft-break — both leaked). Single
+    # caption at the top, no bottom footer = no possible duplication.
+    st.caption(
+        "LangChain · FAISS · GPT-3.5-turbo  \n"
+        "MongoDB · FastAPI · Docker · HF Spaces"
+    )
     st.divider()
 
     healthy = api_health()
@@ -508,19 +517,6 @@ with st.sidebar:
             mime="text/markdown",
             use_container_width=True,
         )
-
-    # Footer rendered via `st.caption` (one element) instead of
-    # `st.markdown(unsafe_allow_html=True)` with a `<small><br></small>`
-    # blob. Empirically, the multi-line HTML markdown was rendering
-    # twice on Streamlit Cloud after `st.rerun()` — the diff path for
-    # custom HTML markdown elements appears to leak in that exact
-    # shape. `st.caption` is a native Streamlit element that maps to
-    # a single rendered node; it does not duplicate.
-    st.divider()
-    st.caption(
-        "LangChain · FAISS · GPT-3.5-turbo  \n"
-        "MongoDB · FastAPI · Docker · HF Spaces"
-    )
 
 
 # ── Main chat UI ──────────────────────────────────────────────────────────────
