@@ -576,78 +576,86 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# Plain st.container — NO `key=` argument. The keyed-container approach
-# (`st.container(key=f"chatzone_{conv_id}")`) was the actual root cause
-# of the New-chat leak: bumping conv_id created a *new* keyed container
-# in the DOM but Streamlit did not remove the previous keyed container,
-# so its child `st.chat_message` widgets stayed painted alongside the
-# new (empty) container. FinSight AI's chat works because it uses the
-# plain container API — the same path used here now.
-chat_holder = st.container()
+# Process any pending query FIRST — this lives outside the chat layout
+# so the new turn ends up in `st.session_state.messages` *before* we
+# decide which branch (empty state vs history) to render.
+if st.session_state.pending_query:
+    if healthy:
+        q = st.session_state.pending_query
+        st.session_state.pending_query = None
+        submit_query(q)
+    else:
+        st.warning(
+            "Backend is waking up and didn't answer in time. "
+            "Click **🔄 Refresh** in the sidebar in a few seconds, then retry."
+        )
+        st.session_state.pending_query = None
 
-with chat_holder:
-    if st.session_state.pending_query:
-        if healthy:
-            q = st.session_state.pending_query
-            st.session_state.pending_query = None
-            submit_query(q)
-        else:
-            st.warning(
-                "Backend is waking up and didn't answer in time. "
-                "Click **🔄 Refresh** in the sidebar in a few seconds, then retry."
+# Mutually-exclusive empty-state vs history rendering — same pattern
+# FinSight AI uses for its Strategy Copilot tab. Critical detail:
+# when there are no messages, the history container is NEVER created.
+# When New chat sets messages = [] and reruns, the entire chat
+# container disappears from the element tree, so Streamlit cannot
+# leave stale `st.chat_message` DOM behind — there is no parent
+# element for those children to live under anymore.
+if not st.session_state.messages:
+    # Empty state — example chips only.
+    st.markdown("**👋 Try one of these to get started:**")
+    cols = st.columns(2)
+    _conv = st.session_state.conv_id
+    for i, (emoji, q) in enumerate(EXAMPLE_QUESTIONS):
+        with cols[i % 2]:
+            st.markdown('<div class="chip-btn">', unsafe_allow_html=True)
+            st.button(
+                f"{emoji}   {q}",
+                key=f"chip_{_conv}_{i}",
+                use_container_width=True,
+                on_click=_queue_query,
+                args=(q,),
             )
-            st.session_state.pending_query = None
-
-    if not st.session_state.messages:
-        st.markdown("**👋 Try one of these to get started:**")
-        cols = st.columns(2)
-        _conv = st.session_state.conv_id
-        for i, (emoji, q) in enumerate(EXAMPLE_QUESTIONS):
-            with cols[i % 2]:
-                st.markdown('<div class="chip-btn">', unsafe_allow_html=True)
-                st.button(
-                    f"{emoji}   {q}",
-                    key=f"chip_{_conv}_{i}",
-                    use_container_width=True,
-                    on_click=_queue_query,
-                    args=(q,),
-                )
-                st.markdown('</div>', unsafe_allow_html=True)
-
-    last_idx = len(st.session_state.messages) - 1
+            st.markdown('</div>', unsafe_allow_html=True)
+else:
+    # History state — fixed-height scrollable container holds the
+    # chat_message bubbles. The container only exists in this branch,
+    # so the empty-state branch is incapable of inheriting any DOM
+    # from a previous frame.
+    msgs     = st.session_state.messages
+    last_idx = len(msgs) - 1
     conv_id  = st.session_state.conv_id
 
-    # Render chat messages WITHOUT follow-up buttons inside them
-    for idx, msg in enumerate(st.session_state.messages):
-        avatar = USER_AVATAR if msg["role"] == "user" else ASSISTANT_AVATAR
-        with st.chat_message(msg["role"], avatar=avatar):
-            st.markdown(msg["content"])
-            if msg["role"] == "assistant":
-                render_meta(msg.get("meta", {}))
-                render_sources(msg.get("sources", []))
+    history_height = min(640, max(280, len(msgs) * 130))
+    history_container = st.container(height=history_height)
+    with history_container:
+        for idx, msg in enumerate(msgs):
+            avatar = USER_AVATAR if msg["role"] == "user" else ASSISTANT_AVATAR
+            with st.chat_message(msg["role"], avatar=avatar):
+                st.markdown(msg["content"])
+                if msg["role"] == "assistant":
+                    render_meta(msg.get("meta", {}))
+                    render_sources(msg.get("sources", []))
 
-                # Feedback buttons (stay inside the message)
-                fb_key = f"fb_{conv_id}_{idx}"
-                if st.session_state.get(fb_key) is None:
-                    c1, c2, _ = st.columns([1, 1, 8])
-                    with c1:
-                        if st.button("👍", key=f"up_{conv_id}_{idx}", help="Good answer"):
-                            _record_feedback(idx, "up")
-                            st.rerun()
-                    with c2:
-                        if st.button("👎", key=f"down_{conv_id}_{idx}", help="Needs work"):
-                            _record_feedback(idx, "down")
-                            st.rerun()
-                else:
-                    rating = st.session_state[fb_key]
-                    st.caption(
-                        f"You rated this answer: {'👍' if rating == 'up' else '👎'}"
-                    )
+                    # Feedback buttons (stay inside the message).
+                    fb_key = f"fb_{conv_id}_{idx}"
+                    if st.session_state.get(fb_key) is None:
+                        c1, c2, _ = st.columns([1, 1, 8])
+                        with c1:
+                            if st.button("👍", key=f"up_{conv_id}_{idx}", help="Good answer"):
+                                _record_feedback(idx, "up")
+                                st.rerun()
+                        with c2:
+                            if st.button("👎", key=f"down_{conv_id}_{idx}", help="Needs work"):
+                                _record_feedback(idx, "down")
+                                st.rerun()
+                    else:
+                        rating = st.session_state[fb_key]
+                        st.caption(
+                            f"You rated this answer: {'👍' if rating == 'up' else '👎'}"
+                        )
 
-    # Render follow-up suggestion buttons OUTSIDE the chat messages
-    if st.session_state.messages and st.session_state.messages[-1]["role"] == "assistant":
-        last_msg = st.session_state.messages[-1]
-        followups = last_msg.get("followups") or []
+    # Follow-up suggestion buttons live OUTSIDE the scrollable history
+    # so the input bar / chips don't get pushed off-screen.
+    if msgs[-1]["role"] == "assistant":
+        followups = (msgs[-1].get("followups") or [])
         if followups:
             st.markdown(
                 '<div style="margin-top:14px; font-weight:600; '
