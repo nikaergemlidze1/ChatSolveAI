@@ -13,6 +13,7 @@ Run via Docker (recommended):
 
 from __future__ import annotations
 
+import html
 import io
 import json
 import os
@@ -143,6 +144,60 @@ st.markdown("""
 .chip-btn button:hover {
     background: rgba(79,139,249,0.15) !important;
     border-color: var(--accent) !important;
+}
+
+/* Custom chat bubbles — the entire history is rendered as a SINGLE
+   st.markdown blob so Streamlit's element-diff has exactly one
+   element to manage instead of N chat_message widgets. Single-element
+   content swap is reliable on Streamlit Cloud; per-widget removal
+   was leaking stale DOM after "New chat". */
+.custom-chat { display: flex; flex-direction: column; gap: 14px; margin: 14px 0; }
+.bubble {
+    display: flex; gap: 10px;
+    padding: 12px 14px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+}
+.bubble.bubble-user { background: rgba(255,255,255,0.03); }
+.bubble.bubble-assistant { background: rgba(79,139,249,0.06); }
+.bubble-avatar { font-size: 1.3rem; flex-shrink: 0; line-height: 1.4; }
+.bubble-body { flex: 1; min-width: 0; }
+.bubble-text {
+    color: #d4d7dd;
+    line-height: 1.5;
+    word-wrap: break-word;
+    white-space: pre-wrap;
+}
+.bubble-meta {
+    margin-top: 8px;
+    display: flex; gap: 6px; flex-wrap: wrap; align-items: center;
+}
+.bubble-sources { margin-top: 10px; }
+.bubble-sources summary {
+    cursor: pointer;
+    color: #9ea3b0;
+    font-size: 0.85rem;
+    list-style: none;
+    user-select: none;
+    padding: 4px 0;
+}
+.bubble-sources summary::-webkit-details-marker { display: none; }
+.bubble-sources summary::before { content: "▸ "; color: #6b7280; }
+.bubble-sources[open] summary::before { content: "▾ "; }
+.bubble-sources .src-item {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-left: 3px solid rgba(79,139,249,0.8);
+    padding: 8px 12px;
+    border-radius: 6px;
+    margin-top: 6px;
+    font-size: 0.82rem;
+    line-height: 1.4;
+    color: #d4d7dd;
+}
+.bubble-sources .src-item.top {
+    border-left-color: #66bb6a;
+    background: rgba(102,187,106,0.08);
 }
 
 /* Follow-up suggestion chips (st.button widgets — small, pill-shaped) */
@@ -450,6 +505,80 @@ def render_sources(sources: list[dict]):
             )
 
 
+def render_history_html(messages: list[dict]) -> str:
+    """
+    Build the entire chat history as a single HTML blob for one
+    ``st.markdown(unsafe_allow_html=True)`` call.
+
+    Why: Streamlit Cloud's element-diff has been observed to leak per-
+    message ``st.chat_message`` widgets after "New chat" — even when
+    the messages list is reset to ``[]`` the previous frame's bubbles
+    sometimes stay painted. With one big markdown element, Streamlit
+    only has to manage *one* element; element-content swap is the
+    reliable code path that already works for every other markdown
+    element on the page (e.g. the example-chips header).
+
+    When ``messages == []`` this function returns an empty string,
+    so the markdown element is removed entirely from the DOM — no
+    more stale chat bubbles can survive "New chat".
+    """
+    if not messages:
+        return ""
+
+    out: list[str] = ['<div class="custom-chat">']
+    for msg in messages:
+        role        = msg.get("role", "user")
+        avatar      = ASSISTANT_AVATAR if role == "assistant" else USER_AVATAR
+        text_safe   = html.escape(msg.get("content", ""))
+        meta_html   = ""
+        sources_html = ""
+
+        if role == "assistant":
+            meta = msg.get("meta") or {}
+            if meta:
+                intent      = meta.get("intent", "general")
+                info        = INTENT_META.get(intent, INTENT_META["general"])
+                conf        = float(meta.get("confidence", 0.0))
+                lat         = int(meta.get("latency_ms", 0))
+                pill_class  = confidence_class(conf)
+                meta_html = (
+                    '<div class="bubble-meta">'
+                    f'<span class="pill">{info["emoji"]} {info["label"]}</span>'
+                    f'<span class="pill {pill_class}">{int(conf*100)}% confidence</span>'
+                    f'<span class="pill pill-purple">⚡ {lat} ms</span>'
+                    '</div>'
+                    f'<div class="meter-wrap"><div class="meter-fill" style="width:{conf*100:.0f}%"></div></div>'
+                )
+
+            sources = msg.get("sources") or []
+            if sources:
+                items: list[str] = []
+                for i, src in enumerate(sources[:4]):
+                    cls       = "src-item top" if i == 0 else "src-item"
+                    src_text  = html.escape(str(src.get("content", ""))[:220])
+                    items.append(f'<div class="{cls}">{src_text}</div>')
+                items_html = "".join(items)
+                sources_html = (
+                    '<details class="bubble-sources">'
+                    f'<summary>📚 Sources ({len(sources)})</summary>'
+                    f'{items_html}'
+                    '</details>'
+                )
+
+        out.append(
+            f'<div class="bubble bubble-{role}">'
+            f'<span class="bubble-avatar">{avatar}</span>'
+            f'<div class="bubble-body">'
+            f'<div class="bubble-text">{text_safe}</div>'
+            f'{meta_html}'
+            f'{sources_html}'
+            '</div>'
+            '</div>'
+        )
+    out.append('</div>')
+    return "".join(out)
+
+
 def build_transcript_md() -> str:
     """Export the conversation as Markdown for download."""
     lines = [
@@ -667,41 +796,51 @@ with chat_holder:
                 )
                 st.markdown('</div>', unsafe_allow_html=True)
 
-    # 3. Conversation history. Widget keys carry conv_id so a fresh
-    #    conversation cannot inherit click-state from a previous one.
-    last_idx = len(st.session_state.messages) - 1
-    conv_id  = st.session_state.conv_id
-    for idx, msg in enumerate(st.session_state.messages):
-        avatar = USER_AVATAR if msg["role"] == "user" else ASSISTANT_AVATAR
-        with st.chat_message(msg["role"], avatar=avatar):
-            st.markdown(msg["content"])
-            if msg["role"] == "assistant":
-                render_meta(msg.get("meta", {}))
-                render_sources(msg.get("sources", []))
+    # 3. Conversation history — rendered as a SINGLE st.markdown blob
+    #    (instead of N st.chat_message widgets). Why: Streamlit Cloud's
+    #    element-diff has been observed to leak stale chat_message DOM
+    #    nodes after "New chat", even when messages == []. With one
+    #    markdown element, the diff path is element-content swap (the
+    #    same path that already works reliably for the example-chips
+    #    header), and ``render_history_html([])`` returns "" so the
+    #    element disappears entirely from the DOM on reset.
+    #
+    #    Trade-off: per-message feedback buttons are rendered after
+    #    the blob in a separate Streamlit-native section so that
+    #    on_click callbacks still work for the latest assistant turn.
+    history_html = render_history_html(st.session_state.messages)
+    if history_html:
+        st.markdown(history_html, unsafe_allow_html=True)
 
-                # Feedback row — one click thanks to on_click callback.
-                fb_key = f"fb_{conv_id}_{idx}"
-                if st.session_state.get(fb_key) is None:
-                    c1, c2, _ = st.columns([1, 1, 8])
-                    c1.button(
-                        "👍",
-                        key=f"up_{conv_id}_{idx}",
-                        help="Good answer",
-                        on_click=_record_feedback,
-                        args=(idx, "up"),
-                    )
-                    c2.button(
-                        "👎",
-                        key=f"down_{conv_id}_{idx}",
-                        help="Needs work",
-                        on_click=_record_feedback,
-                        args=(idx, "down"),
-                    )
-                else:
-                    rating = st.session_state[fb_key]
-                    st.caption(
-                        f"You rated this answer: {'👍' if rating == 'up' else '👎'}"
-                    )
+    # Feedback buttons for the latest assistant turn (kept as real
+    # widgets so ``on_click=_record_feedback`` works). Earlier turns
+    # are read-only inside the markdown blob.
+    msgs    = st.session_state.messages
+    conv_id = st.session_state.conv_id
+    if msgs and msgs[-1].get("role") == "assistant":
+        last_idx = len(msgs) - 1
+        fb_key   = f"fb_{conv_id}_{last_idx}"
+        if st.session_state.get(fb_key) is None:
+            c1, c2, _ = st.columns([1, 1, 8])
+            c1.button(
+                "👍",
+                key=f"up_{conv_id}_{last_idx}",
+                help="Good answer",
+                on_click=_record_feedback,
+                args=(last_idx, "up"),
+            )
+            c2.button(
+                "👎",
+                key=f"down_{conv_id}_{last_idx}",
+                help="Needs work",
+                on_click=_record_feedback,
+                args=(last_idx, "down"),
+            )
+        else:
+            rating = st.session_state[fb_key]
+            st.caption(
+                f"You rated this answer: {'👍' if rating == 'up' else '👎'}"
+            )
 
     # 4. Follow-up chips — rendered into a DEDICATED st.empty() slot
     #    that lives OUTSIDE the message loop (but still inside the
