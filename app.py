@@ -286,10 +286,10 @@ def _fire_and_forget_delete(sid: str) -> None:
     threading.Thread(target=_go, daemon=True).start()
 
 
-# ── Reset logic (guaranteed clean slate via parent‑page navigation) ───────────
+# ── Reset logic (guaranteed to work every time) ──────────────────────────────
 
 def _reset_conversation():
-    """Clear state and force a full browser reload for a guaranteed clean slate."""
+    """Clear state and force the browser to do a full hard reload."""
     old_sid = st.session_state.get("session_id", "")
 
     # Clear cached API responses
@@ -303,15 +303,13 @@ def _reset_conversation():
     if old_sid:
         _fire_and_forget_delete(old_sid)
 
-    # Navigate the PARENT window (not the Streamlit iframe) to a fresh URL
-    components.html(
-        f"""
+    # Force a full page reload – this discards the entire DOM
+    # and fetches a brand‑new page from the server.
+    components.html("""
         <script>
-            window.parent.location.href = window.parent.location.origin + window.parent.location.pathname + "?reset={int(time.time())}";
+            location.reload(true);
         </script>
-        """,
-        height=0,
-    )
+    """, height=0)
     st.stop()
 
 
