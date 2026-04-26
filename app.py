@@ -23,7 +23,6 @@ from datetime import datetime
 
 import requests
 import streamlit as st
-import streamlit.components.v1 as components
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -612,11 +611,29 @@ st.markdown(
 # All chat content (pending-query handler, example chips, message
 # history, follow-up chips) renders inside a SINGLE st.container whose
 # key is bound to ``conv_id``. When "New chat" bumps ``conv_id``, the
-# container key changes — Streamlit assigns a new identity and rebuilds
-# the entire subtree from scratch instead of diffing against the
-# previous frame. That guarantees both stale chat_message DOM nodes
-# (main Q/A bubbles) AND stale follow-up suggestion chips are evicted
-# in one atomic swap, with no browser reload required.
+# container key changes and Streamlit applies CSS class
+# ``st-key-chatzone_<conv_id>`` to the new container's root element.
+#
+# CSS rule below hides any chat container whose class does NOT match
+# the current conv_id. This is a guaranteed top-level DOM fix that
+# does not depend on Streamlit's element diff actually removing the
+# stale subtree (which has been observed to leak on Streamlit Cloud).
+# CSS injected via ``st.markdown(unsafe_allow_html=True)`` lands in
+# the main app DOM and applies globally — no iframe / sandbox / cross-
+# origin issues like the components.html JS attempt in PR #21 had.
+st.markdown(
+    f"""
+    <style>
+    /* Hide every stale chat container — only the one whose key matches
+       the current conv_id is allowed to paint. */
+    [class*="st-key-chatzone_"]:not(.st-key-chatzone_{st.session_state.conv_id}) {{
+        display: none !important;
+    }}
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
 chat_holder = st.container(key=f"chatzone_{st.session_state.conv_id}")
 
 with chat_holder:
@@ -739,53 +756,9 @@ if prompt := st.chat_input("Ask about orders, billing, account, or technical iss
     st.rerun()
 
 
-# ── DOM cleanup hook ──────────────────────────────────────────────────────────
-# Streamlit Cloud's element diff has been observed to keep DOM nodes from
-# the previous chat conversation visible *alongside* the freshly rendered
-# empty state after "New chat" — the Python state IS reset (example chips
-# render correctly), but stale `st.chat_message` bubbles and follow-up
-# `st.button` chips from the previous frame survive the diff.
-#
-# This component injects a one-shot DOM cleanup script. The keyed chat
-# container (`st.container(key=f"chatzone_{conv_id}")`) renders with
-# CSS class `st-key-chatzone_<conv_id>`. On every script run we look at
-# every element matching that class prefix and remove the ones whose
-# class does NOT match the *current* conv_id — those are stale leftovers
-# from a previous conversation.
-#
-# Running inside `components.html` puts the script in a srcdoc iframe
-# which is same-origin with the parent app, so `window.parent.document`
-# access works and the JS can directly mutate the parent DOM. This is
-# NOT a browser reload — only stale subtrees are removed; the current
-# render is left untouched.
-components.html(
-    f"""
-    <script>
-    (function() {{
-        const conv = {json.dumps(st.session_state.conv_id)};
-        const targetClass = "st-key-chatzone_" + conv;
-        const parent = window.parent && window.parent.document;
-        if (!parent) return;
-
-        function prune() {{
-            const all = parent.querySelectorAll('[class*="st-key-chatzone_"]');
-            all.forEach(el => {{
-                if (!el.classList.contains(targetClass)) {{
-                    el.remove();
-                }}
-            }});
-        }}
-
-        // Run immediately and again on the next animation frame to
-        // catch any stale nodes that Streamlit re-mounts after our
-        // first pass (it sometimes re-injects diffed elements during
-        // the post-render reconciliation step).
-        prune();
-        requestAnimationFrame(prune);
-        setTimeout(prune, 50);
-        setTimeout(prune, 200);
-    }})();
-    </script>
-    """,
-    height=0,
-)
+# Stale-DOM eviction is now handled by the CSS rule injected at the top
+# of the chat zone (see ``st-key-chatzone_*`` selector above). No JS /
+# components.html iframe is needed — the CSS approach lands in the main
+# app DOM directly via ``st.markdown(unsafe_allow_html=True)`` and
+# avoids the iframe sandbox / cross-origin restrictions that prevented
+# PR #21's JS pruner from running on Streamlit Cloud.
