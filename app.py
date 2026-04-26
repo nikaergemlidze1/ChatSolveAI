@@ -317,12 +317,11 @@ def _fire_and_forget_delete(sid: str) -> None:
 def _do_full_reset():
     old_sid = st.session_state.get("session_id", "")
 
-    # --- Add this line ---
+    # Clear any URL query parameters (just in case)
     try:
         st.query_params.clear()
     except Exception:
         pass
-    # ---------------------
 
     try:
         fetch_analytics.clear()
@@ -330,6 +329,7 @@ def _do_full_reset():
     except Exception:
         pass
 
+    # Reset all conversation state
     st.session_state["session_id"]    = str(uuid.uuid4())
     st.session_state["conv_id"]       = str(uuid.uuid4())[:8]
     st.session_state["messages"]      = []
@@ -338,7 +338,7 @@ def _do_full_reset():
     st.session_state["pending_query"] = None
     st.session_state.pop("followups", None)
 
-    # Clear any stale widget keys from the old conversation
+    # Remove stale widget keys from the old conversation
     stale_prefixes = ("fb_", "up_", "down_", "fu_", "chip_", "followup_")
     for key in list(st.session_state.keys()):
         if isinstance(key, str) and key.startswith(stale_prefixes):
@@ -349,6 +349,9 @@ def _do_full_reset():
 
     if old_sid:
         _fire_and_forget_delete(old_sid)
+
+    # 🔁 Force a clean rerun so the UI is rebuilt from scratch
+    st.rerun()
 
 
 def _refresh_ui():
