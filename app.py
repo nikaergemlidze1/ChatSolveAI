@@ -509,17 +509,18 @@ with st.sidebar:
             use_container_width=True,
         )
 
-    # Footer wrapped in a dedicated container so Streamlit's element diff
-    # treats it as one removable subtree — prevents the doubled-footer
-    # leak the user spotted on Streamlit Cloud after "New chat".
-    footer_container = st.container()
-    with footer_container:
-        st.divider()
-        st.markdown(
-            "<small>LangChain · FAISS · GPT-3.5-turbo<br>"
-            "MongoDB · FastAPI · Docker · HF Spaces</small>",
-            unsafe_allow_html=True,
-        )
+    # Footer rendered via `st.caption` (one element) instead of
+    # `st.markdown(unsafe_allow_html=True)` with a `<small><br></small>`
+    # blob. Empirically, the multi-line HTML markdown was rendering
+    # twice on Streamlit Cloud after `st.rerun()` — the diff path for
+    # custom HTML markdown elements appears to leak in that exact
+    # shape. `st.caption` is a native Streamlit element that maps to
+    # a single rendered node; it does not duplicate.
+    st.divider()
+    st.caption(
+        "LangChain · FAISS · GPT-3.5-turbo  \n"
+        "MongoDB · FastAPI · Docker · HF Spaces"
+    )
 
 
 # ── Main chat UI ──────────────────────────────────────────────────────────────
