@@ -30,9 +30,19 @@ from datetime import datetime, timezone
 import motor.motor_asyncio
 from pymongo import DESCENDING
 
+from api.pii import redact_pii
+
 # ── Connection ────────────────────────────────────────────────────────────────
 MONGO_URL = os.getenv("MONGO_URL") or os.getenv("MONGODB_URI") or "mongodb://localhost:27017"
 DB_NAME   = "chatsolveai"
+
+# How long to keep stored chat / feedback / latency / session docs.
+# Override via the MONGO_TTL_DAYS env var.
+TTL_DAYS = int(os.getenv("MONGO_TTL_DAYS", "90"))
+
+# Cap on per-session messages array — protects against unbounded growth
+# if a single session is reused for many turns.
+MAX_SESSION_MESSAGES = int(os.getenv("MAX_SESSION_MESSAGES", "200"))
 
 _client: motor.motor_asyncio.AsyncIOMotorClient | None = None
 
@@ -82,11 +92,22 @@ async def ensure_session(session_id: str) -> None:
 
 
 async def append_message(session_id: str, role: str, content: str) -> None:
-    """Push a message onto the session's messages array."""
+    """Push a message onto the session's messages array.
+
+    Content is PII-redacted before storage and the array is capped at
+    ``MAX_SESSION_MESSAGES`` entries (most-recent-wins via ``$slice``).
+    """
     col = sessions_col()
     await col.update_one(
         {"_id": session_id},
-        {"$push": {"messages": {"role": role, "content": content, "timestamp": _now()}}},
+        {"$push": {"messages": {
+            "$each": [{
+                "role": role,
+                "content": redact_pii(content),
+                "timestamp": _now(),
+            }],
+            "$slice": -MAX_SESSION_MESSAGES,
+        }}},
     )
 
 
@@ -112,13 +133,13 @@ async def log_query(
     intent:     str   = "general",
     confidence: float = 0.0,
 ) -> None:
-    """Insert a single query-answer log entry."""
+    """Insert a single query-answer log entry. PII redacted before storage."""
     await logs_col().insert_one(
         {
             "session_id": session_id,
-            "query":      query,
-            "answer":     answer,
-            "sources":    sources,
+            "query":      redact_pii(query),
+            "answer":     redact_pii(answer),
+            "sources":    sources,  # source documents come from the curated KB
             "intent":     intent,
             "confidence": confidence,
             "timestamp":  _now(),
@@ -138,10 +159,10 @@ async def log_feedback(
     await feedback_col().insert_one(
         {
             "session_id": session_id,
-            "query":      query,
-            "answer":     answer,
+            "query":      redact_pii(query),
+            "answer":     redact_pii(answer),
             "rating":     rating,
-            "note":       note,
+            "note":       redact_pii(note) if note else note,
             "timestamp":  _now(),
         }
     )
@@ -290,6 +311,33 @@ async def recent_sessions(limit: int = 10) -> list[dict]:
             "last_message": (last[:80] + "…") if len(last) > 80 else last,
         })
     return out
+
+
+# ── Index management ──────────────────────────────────────────────────────────
+
+async def ensure_indexes(ttl_days: int | None = None) -> None:
+    """Create TTL indexes on every time-stamped collection so logs don't
+    grow unbounded. Idempotent — calling on each app start is safe.
+
+    MongoDB drops documents whose TTL field is older than ``ttl_days``
+    days during its periodic reaper sweep (every ~60 s).
+    """
+    secs = (ttl_days if ttl_days is not None else TTL_DAYS) * 86_400
+    # Each collection's reaper field differs:
+    #   query_logs / feedback / latency → ``timestamp``
+    #   sessions                         → ``created_at``
+    await logs_col().create_index(
+        "timestamp", expireAfterSeconds=secs, background=True,
+    )
+    await feedback_col().create_index(
+        "timestamp", expireAfterSeconds=secs, background=True,
+    )
+    await latency_col().create_index(
+        "timestamp", expireAfterSeconds=secs, background=True,
+    )
+    await sessions_col().create_index(
+        "created_at", expireAfterSeconds=secs, background=True,
+    )
 
 
 # ── Internal ──────────────────────────────────────────────────────────────────

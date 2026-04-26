@@ -36,6 +36,7 @@ from slowapi.errors import RateLimitExceeded
 from pipeline.config import data_path
 from pipeline.rag import build_rag_chain
 
+from api import database as db
 from api.auth import verify_api_key
 from api.limits import limiter
 from api.middleware import LatencyMiddleware
@@ -55,6 +56,16 @@ async def lifespan(app: FastAPI):
         predefined_path=data_path("predefined_responses.json"),
     )
     print("✓ RAG chain ready")
+
+    # TTL indexes — MongoDB auto-prunes old logs / sessions per
+    # MONGO_TTL_DAYS (default 90). Idempotent; safe to call every boot.
+    try:
+        await db.ensure_indexes()
+        print("✓ MongoDB TTL indexes ensured")
+    except Exception as exc:
+        # Index creation must never block app startup; log and continue.
+        print(f"⚠  ensure_indexes failed: {exc!r}")
+
     yield
     print("◼ Shutting down")
 
