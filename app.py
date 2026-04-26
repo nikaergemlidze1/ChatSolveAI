@@ -653,30 +653,42 @@ else:
                         )
 
     # Follow-up suggestion buttons live OUTSIDE the scrollable history
-    # so the input bar / chips don't get pushed off-screen.
-    if msgs[-1]["role"] == "assistant":
-        followups = (msgs[-1].get("followups") or [])
-        if followups:
-            st.markdown(
-                '<div style="margin-top:14px; font-weight:600; '
-                'color:#c9b8ff;">💡 Suggested follow-ups</div>',
-                unsafe_allow_html=True,
-            )
-            cols = st.columns(len(followups))
-            fu_clicked = None
-            for i, q in enumerate(followups):
-                with cols[i]:
-                    st.markdown('<div class="chip-btn">', unsafe_allow_html=True)
-                    if st.button(
-                        q,
-                        key=f"fu_{conv_id}_{last_idx}_{i}",
-                        use_container_width=True,
-                    ):
-                        fu_clicked = q
-                    st.markdown('</div>', unsafe_allow_html=True)
-            if fu_clicked:
-                st.session_state.pending_query = fu_clicked
-                st.rerun()
+    # so the input bar doesn't get pushed off-screen, but they're
+    # wrapped in their OWN dedicated `st.container()`. Why a wrapper:
+    # `st.button` widgets emitted at the bare `else:` scope leaked
+    # past the empty-state branch on Streamlit Cloud — the chip pills
+    # from the previous conversation stayed painted alongside the
+    # freshly rendered example chips after **New chat**. The fix is
+    # the same trick the history container uses: when the `else:`
+    # branch isn't taken, the wrapper container is never created,
+    # so its parent element is gone and Streamlit removes the entire
+    # chip subtree in one atomic step (the diff path that worked
+    # for `history_container` in PR #25 also works here).
+    chips_container = st.container()
+    with chips_container:
+        if msgs[-1]["role"] == "assistant":
+            followups = (msgs[-1].get("followups") or [])
+            if followups:
+                st.markdown(
+                    '<div style="margin-top:14px; font-weight:600; '
+                    'color:#c9b8ff;">💡 Suggested follow-ups</div>',
+                    unsafe_allow_html=True,
+                )
+                cols = st.columns(len(followups))
+                fu_clicked = None
+                for i, q in enumerate(followups):
+                    with cols[i]:
+                        st.markdown('<div class="chip-btn">', unsafe_allow_html=True)
+                        if st.button(
+                            q,
+                            key=f"fu_{conv_id}_{last_idx}_{i}",
+                            use_container_width=True,
+                        ):
+                            fu_clicked = q
+                        st.markdown('</div>', unsafe_allow_html=True)
+                if fu_clicked:
+                    st.session_state.pending_query = fu_clicked
+                    st.rerun()
 
 # ── Chat input ────────────────────────────────────────────────────────────────
 if prompt := st.chat_input("Ask about orders, billing, account, or technical issues…"):
