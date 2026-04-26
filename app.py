@@ -146,7 +146,7 @@ st.markdown("""
     border-color: var(--accent) !important;
 }
 
-/* Follow-up suggestion chips — rendered as buttons now */
+/* Follow-up suggestion chips — now rendered as buttons */
 .fu-row {
     display: flex;
     flex-wrap: wrap;
@@ -206,43 +206,6 @@ def _init_state():
     st.session_state.pop("followups", None)
 
 _init_state()
-
-
-# ── Reset handler (applied before any UI) ─────────────────────────────────────
-
-def _perform_full_reset():
-    old_sid = st.session_state.get("session_id", "")
-
-    # Clear URL params and caches
-    try:
-        st.query_params.clear()
-    except Exception:
-        pass
-    fetch_analytics.clear()
-    api_health.clear()
-
-    # New conversation identity
-    st.session_state["session_id"]    = str(uuid.uuid4())
-    st.session_state["conv_id"]       = str(uuid.uuid4())[:8]
-    st.session_state["messages"]      = []
-    st.session_state["last_sources"]  = []
-    st.session_state["last_meta"]     = {}
-    st.session_state["pending_query"] = None
-    st.session_state.pop("followups", None)
-
-    # Remove stale widget keys from the old conversation
-    for key in list(st.session_state.keys()):
-        if isinstance(key, str) and key.startswith(("fb_", "up_", "down_", "fu_", "chip_", "followup_")):
-            del st.session_state[key]
-
-    if old_sid:
-        _fire_and_forget_delete(old_sid)
-
-
-# Apply pending reset BEFORE anything else is rendered
-if st.session_state["_reset"]:
-    _perform_full_reset()
-    st.session_state["_reset"] = False
 
 
 # ── API helpers ───────────────────────────────────────────────────────────────
@@ -497,6 +460,43 @@ def submit_query(query: str):
     })
     st.session_state.last_sources = sources
     st.session_state.last_meta    = meta
+
+
+# ── Reset handler (applied before any UI) ─────────────────────────────────────
+
+def _perform_full_reset():
+    old_sid = st.session_state.get("session_id", "")
+
+    # Clear URL params and caches
+    try:
+        st.query_params.clear()
+    except Exception:
+        pass
+    fetch_analytics.clear()
+    api_health.clear()
+
+    # New conversation identity
+    st.session_state["session_id"]    = str(uuid.uuid4())
+    st.session_state["conv_id"]       = str(uuid.uuid4())[:8]
+    st.session_state["messages"]      = []
+    st.session_state["last_sources"]  = []
+    st.session_state["last_meta"]     = {}
+    st.session_state["pending_query"] = None
+    st.session_state.pop("followups", None)
+
+    # Remove stale widget keys from the old conversation
+    for key in list(st.session_state.keys()):
+        if isinstance(key, str) and key.startswith(("fb_", "up_", "down_", "fu_", "chip_", "followup_")):
+            del st.session_state[key]
+
+    if old_sid:
+        _fire_and_forget_delete(old_sid)
+
+
+# ← Apply reset HERE, after all functions are defined
+if st.session_state["_reset"]:
+    _perform_full_reset()
+    st.session_state["_reset"] = False
 
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
