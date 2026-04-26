@@ -1,24 +1,29 @@
-# API service only — no sentence-transformers, no matplotlib, no streamlit
-openai>=1.30.0
-python-dotenv>=1.0.0
+# API service only — no streamlit, no notebook tooling.
+#
+# Versions are bounded to the current major (or compatible upper bound)
+# so transitive bumps cannot quietly break the build. Tighten or
+# generate a hash-pinned lockfile (`pip-compile`) before going to prod.
 
-langchain>=0.2.0
-langchain-openai>=0.1.0
-langchain-community>=0.2.0
-langchain-core>=0.2.0
+openai>=1.30.0,<2.0
+python-dotenv>=1.0.0,<2.0
 
-faiss-cpu>=1.8.0
-rank-bm25>=0.2.2
+langchain>=0.2.0,<0.4
+langchain-openai>=0.1.0,<0.4
+langchain-community>=0.2.0,<0.4
+langchain-core>=0.2.0,<0.4
 
-pandas>=2.0.0
-numpy>=1.26.0
+faiss-cpu>=1.8.0,<2.0
+rank-bm25>=0.2.2,<1.0
 
-fastapi>=0.111.0
-uvicorn[standard]>=0.30.0
-pydantic>=2.7.0
+pandas>=2.0.0,<3.0
+numpy>=1.26.0,<3.0
 
-motor>=3.4.0
-pymongo>=4.7.0
+fastapi>=0.111.0,<1.0
+uvicorn[standard]>=0.30.0,<1.0
+pydantic>=2.7.0,<3.0
+
+motor>=3.4.0,<4.0
+pymongo>=4.7.0,<5.0
 
 # Per-IP rate limiting middleware for FastAPI
-slowapi>=0.1.9
+slowapi>=0.1.9,<0.2

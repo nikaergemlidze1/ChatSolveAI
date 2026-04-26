@@ -1,38 +1,50 @@
+# Full project requirements — used for local dev and the notebook.
+# Production containers install one of the focused subsets:
+#   - requirements.api.txt        (FastAPI service)
+#   - requirements.streamlit.txt  (Streamlit frontend)
+#
+# Versions bounded to current major to block transitive breakage.
+# Generate a hash-pinned lockfile with pip-compile before going to prod.
+
 # ── Core AI / OpenAI ──────────────────────────────────────────────────────────
-openai>=1.30.0
-python-dotenv>=1.0.0
+openai>=1.30.0,<2.0
+python-dotenv>=1.0.0,<2.0
 
 # ── LangChain (RAG pipeline) ──────────────────────────────────────────────────
-langchain>=0.2.0
-langchain-openai>=0.1.0
-langchain-community>=0.2.0
-langchain-core>=0.2.0
+langchain>=0.2.0,<0.4
+langchain-openai>=0.1.0,<0.4
+langchain-community>=0.2.0,<0.4
+langchain-core>=0.2.0,<0.4
 
 # ── Vector search ─────────────────────────────────────────────────────────────
-faiss-cpu>=1.8.0
+faiss-cpu>=1.8.0,<2.0
 
 # ── Lexical search ────────────────────────────────────────────────────────────
-rank-bm25>=0.2.2
+rank-bm25>=0.2.2,<1.0
 
-# ── Re-ranking ────────────────────────────────────────────────────────────────
-sentence-transformers>=3.0.0
+# ── Re-ranking (used only by the evaluation notebook today; the live RAG
+#    chain in pipeline/rag.py does not currently invoke the reranker) ─────────
+sentence-transformers>=3.0.0,<6.0
 
 # ── Data processing ───────────────────────────────────────────────────────────
-pandas>=2.0.0
-numpy>=1.26.0
+pandas>=2.0.0,<3.0
+numpy>=1.26.0,<3.0
 
 # ── FastAPI backend ───────────────────────────────────────────────────────────
-fastapi>=0.111.0
-uvicorn[standard]>=0.30.0
-pydantic>=2.7.0
+fastapi>=0.111.0,<1.0
+uvicorn[standard]>=0.30.0,<1.0
+pydantic>=2.7.0,<3.0
 
 # ── MongoDB async driver ──────────────────────────────────────────────────────
-motor>=3.4.0
-pymongo>=4.7.0
+motor>=3.4.0,<4.0
+pymongo>=4.7.0,<5.0
 
 # ── Web app (Streamlit frontend) ──────────────────────────────────────────────
-streamlit>=1.39.0
-requests>=2.31.0
+streamlit>=1.39.0,<2.0
+requests>=2.31.0,<3.0
 
 # ── Visualisation (notebook only) ─────────────────────────────────────────────
-matplotlib>=3.8.0
+matplotlib>=3.8.0,<4.0
+
+# ── Per-IP rate limiting middleware for FastAPI ──────────────────────────────
+slowapi>=0.1.9,<0.2

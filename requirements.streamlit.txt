@@ -1,4 +1,7 @@
-# Streamlit frontend only — calls FastAPI, needs no ML packages
-streamlit>=1.39.0
-requests>=2.31.0
-python-dotenv>=1.0.0
+# Streamlit frontend only — calls FastAPI, needs no ML packages.
+# Versions bounded to current major; tighten with pip-compile lockfile
+# before going to prod.
+
+streamlit>=1.39.0,<2.0
+requests>=2.31.0,<3.0
+python-dotenv>=1.0.0,<2.0
