@@ -540,13 +540,11 @@ with st.sidebar:
 
     col1, col2 = st.columns(2)
     with col1:
-        st.button(
-            "🗑 New chat",
-            key="btn_new_chat",
-            use_container_width=True,
-            on_click=_do_full_reset,
-            help="Clears the conversation and starts a fresh session.",
-        )
+        if st.button("🗑 New chat", key="btn_new_chat", use_container_width=True,
+                     help="Clears the conversation and starts a fresh session."):
+            _perform_full_reset()
+            st.rerun()
+
     with col2:
         st.button(
             "🔄 Refresh",
