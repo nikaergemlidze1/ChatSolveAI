@@ -147,34 +147,45 @@ _sync_session_url()
 # render_meta, render_sources, build_transcript_md, submit_query,
 # _perform_full_reset …
 
-# ── Sidebar ─────────────────────────────────────────────────────
-with st.sidebar:
-    st.image("https://img.icons8.com/fluency/96/chatbot.png", width=64)
-    st.title("ChatSolveAI")
-    st.caption("LangChain · FAISS · GPT‑3.5‑turbo\n"
-               "MongoDB · FastAPI · Docker · HF Spaces")
-    st.divider()
+# ── Sidebar (only on the main App page) ───────────────────────────
+if st.session_state.get("_current_page", "app") == "app":
+    with st.sidebar:
+        st.image("https://img.icons8.com/fluency/96/chatbot.png", width=64)
+        st.title("ChatSolveAI")
+        st.caption(
+            "LangChain · FAISS · GPT-3.5-turbo  \n"
+            "MongoDB · FastAPI · Docker · HF Spaces"
+        )
+        st.divider()
 
-    healthy = api_health()
-    if healthy:
-        st.success("API connected", icon="✅")
-    else:
-        st.error(f"API unreachable at {API_URL}", icon="🔴")
-        st.info("Cold start may be needed …")
+        healthy = api_health()
+        if healthy:
+            st.success("API connected", icon="✅")
+        else:
+            st.error(f"API unreachable at {API_URL}", icon="🔴")
+            st.info(
+                "Cold‑start may be needed — wait ~30 s and try again."
+            )
 
-    st.caption(f"Session: `{st.session_state.session_id[:8]}…`")
-    st.divider()
+        st.caption(f"Session: `{st.session_state.session_id[:8]}…`")
+        st.divider()
 
-    if st.button("🗑 New chat", key="btn_new_chat", use_container_width=True,
-                 help="Clear conversation"):
-        _perform_full_reset()
-        st.rerun()
+        if st.button("🗑 New chat", key="btn_new_chat", use_container_width=True,
+                     help="Clears the conversation and starts a fresh session."):
+            _perform_full_reset()
+            st.rerun()
 
-    if st.session_state.messages:
-        st.download_button("⬇️ Export chat (.md)",
-                           data=build_transcript_md(),
-                           file_name=f"chatsolveai_{st.session_state.session_id[:8]}.md",
-                           mime="text/markdown", use_container_width=True)
+        if st.session_state.messages:
+            st.download_button(
+                "⬇️ Export chat (.md)",
+                data=build_transcript_md(),
+                file_name=f"chatsolveai_{st.session_state.session_id[:8]}.md",
+                mime="text/markdown",
+                use_container_width=True,
+            )
+else:
+    # Admin dashboard gets an absolutely empty sidebar
+    st.sidebar.empty()
 
 # ── Main chat UI ────────────────────────────────────────────────
 st.markdown('<div class="hero-title">💬 ChatSolveAI — Customer Support</div>',
