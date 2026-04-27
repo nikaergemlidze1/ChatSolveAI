@@ -94,6 +94,7 @@ EXAMPLE_QUESTIONS = [
 # ── Page setup ──────────────────────────────────────────────────
 st.set_page_config(page_title="ChatSolveAI", page_icon="🤖", layout="wide",
                    initial_sidebar_state="expanded")
+st.session_state["_current_page"] = "app"
 
 st.markdown("""<style>
 :root { --accent: #4F8BF9; --accent-2: #8E6BFF; }
@@ -142,20 +143,305 @@ _init_state()
 _adopt_url_session()
 _sync_session_url()
 
-# … All the same functions: api_health, call_chat, call_chat_stream,
-# call_history, call_suggest, call_feedback, confidence_class,
-# render_meta, render_sources, build_transcript_md, submit_query,
-# _perform_full_reset …
 
-# ── Sidebar (only on the main App page) ───────────────────────────
+# ── API helpers ─────────────────────────────────────────────────
+@st.cache_data(ttl=15, show_spinner=False)
+def api_health() -> bool:
+    for attempt in range(HEALTH_RETRIES + 1):
+        try:
+            r = requests.get(f"{API_URL}/health", timeout=HEALTH_TIMEOUT_S)
+            if r.ok:
+                return True
+        except requests.RequestException:
+            pass
+        if attempt < HEALTH_RETRIES:
+            time.sleep(2)
+    return False
+
+
+def call_chat(query: str) -> dict | None:
+    last_err = None
+    for attempt in range(2):
+        try:
+            r = requests.post(f"{API_URL}/chat",
+                              json={"session_id": st.session_state.session_id, "query": query},
+                              headers=_api_headers(), timeout=60)
+            if r.ok:
+                return r.json()
+            if 500 <= r.status_code < 600 and attempt == 0:
+                last_err = f"{r.status_code}: {r.text[:120]}"
+                time.sleep(3)
+                continue
+            st.error(f"API error {r.status_code}: {r.text[:200]}")
+            return None
+        except requests.RequestException as e:
+            last_err = str(e)
+            if attempt == 0:
+                time.sleep(3)
+                continue
+    st.error(f"Network error after retry: {last_err}")
+    return None
+
+
+def call_chat_stream(query: str, output_box=None) -> dict | None:
+    answer_parts: list[str] = []
+    final_payload: dict = {}
+    last_err = None
+    try:
+        with requests.post(f"{API_URL}/chat/stream",
+                           json={"session_id": st.session_state.session_id, "query": query},
+                           headers=_api_headers(), timeout=90, stream=True) as r:
+            if not r.ok:
+                st.error(f"API error {r.status_code}: {r.text[:200]}")
+                return None
+            for raw_line in r.iter_lines(decode_unicode=True):
+                if not raw_line or not raw_line.startswith("data:"):
+                    continue
+                payload = raw_line.removeprefix("data:").strip()
+                if payload == "[DONE]":
+                    break
+                try:
+                    event = json.loads(payload)
+                except json.JSONDecodeError:
+                    continue
+                if "token" in event:
+                    answer_parts.append(event["token"])
+                    if output_box is not None:
+                        output_box.markdown("".join(answer_parts))
+                    continue
+                if event.get("event") == "final":
+                    final_payload = event
+    except requests.RequestException as e:
+        last_err = str(e)
+
+    if final_payload:
+        final_payload.setdefault("answer", "".join(answer_parts))
+        return final_payload
+    if answer_parts:
+        return {"answer": "".join(answer_parts), "source_documents": [],
+                "confidence": 0.0, "condensed_query": query, "intent": "general", "latency_ms": 0}
+    if last_err:
+        st.error(f"Network error while streaming: {last_err}")
+    return None
+
+
+def call_history(session_id: str) -> list[dict] | None:
+    try:
+        r = requests.get(f"{API_URL}/history/{session_id}", timeout=15)
+        if r.status_code == 404:
+            return []
+        if not r.ok:
+            return None
+        return r.json().get("messages", [])
+    except requests.RequestException:
+        return None
+
+
+def call_suggest(last_answer: str) -> list[str]:
+    try:
+        r = requests.post(f"{API_URL}/suggest",
+                          json={"last_answer": last_answer, "n": 3},
+                          headers=_api_headers(), timeout=25)
+        if r.ok:
+            return r.json().get("suggestions", [])
+    except requests.RequestException:
+        pass
+    return []
+
+
+def call_feedback(query: str, answer: str, rating: str) -> bool:
+    try:
+        r = requests.post(f"{API_URL}/feedback",
+                          json={"session_id": st.session_state.session_id,
+                                "query": query, "answer": answer, "rating": rating},
+                          headers=_api_headers(), timeout=10)
+        return r.ok
+    except requests.RequestException:
+        return False
+
+
+# ── Callbacks ───────────────────────────────────────────────────
+def _queue_query(query: str):
+    if not query:
+        return
+    st.session_state.pending_query = query
+    st.session_state.pending_append_user = True
+
+
+def _queue_regenerate(assistant_idx: int):
+    msgs = st.session_state.messages
+    if assistant_idx <= 0 or assistant_idx >= len(msgs):
+        return
+    if msgs[assistant_idx]["role"] != "assistant" or msgs[assistant_idx - 1]["role"] != "user":
+        return
+    query = msgs[assistant_idx - 1]["content"]
+    del msgs[assistant_idx]
+    st.session_state.pending_query = query
+    st.session_state.pending_append_user = False
+
+
+def _record_feedback(idx: int, rating: str):
+    msgs = st.session_state.messages
+    if idx <= 0 or idx >= len(msgs):
+        return
+    try:
+        call_feedback(msgs[idx - 1]["content"], msgs[idx]["content"], rating)
+    except Exception:
+        pass
+    conv_id = st.session_state.get("conv_id", "")
+    st.session_state[f"fb_{conv_id}_{idx}"] = rating
+
+
+# ── Helpers ─────────────────────────────────────────────────────
+def confidence_class(c: float) -> str:
+    if c >= 0.75: return "pill-green"
+    if c >= 0.5:  return "pill-amber"
+    return "pill-red"
+
+
+def render_meta(meta: dict):
+    if not meta:
+        return
+    intent = meta.get("intent", "general")
+    info   = INTENT_META.get(intent, INTENT_META["general"])
+    conf   = float(meta.get("confidence", 0.0))
+    lat    = int(meta.get("latency_ms", 0))
+    pill_class = confidence_class(conf)
+
+    pills_html = (
+        f'<span class="pill">{info["emoji"]} {info["label"]}</span>'
+        f'<span class="pill {pill_class}">{int(conf*100)}% confidence</span>'
+        f'<span class="pill pill-purple">⚡ {lat} ms</span>'
+    )
+    st.markdown(
+        f'<div style="margin-top:8px; display:flex; gap:6px; flex-wrap:wrap; align-items:center;">'
+        f'{pills_html}</div>',
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        f'<div class="meter-wrap"><div class="meter-fill" style="width:{conf*100:.0f}%"></div></div>',
+        unsafe_allow_html=True,
+    )
+
+
+def _similarity_from_l2(l2: float) -> float:
+    return max(0.0, min(1.0, 1.0 - (l2 ** 2) / 2.0))
+
+
+def render_sources(sources: list[dict]):
+    if not sources:
+        return
+    with st.expander(f"📚 Sources ({len(sources)})", expanded=False):
+        for i, src in enumerate(sources[:4]):
+            cls = "top" if i == 0 else ""
+            meta = src.get("metadata", {})
+            meta_bits = []
+            if src.get("score") is not None:
+                sim = _similarity_from_l2(float(src["score"]))
+                meta_bits.append(f'similarity: {sim:.2f}')
+            if meta.get("topic"):
+                meta_bits.append(f'topic: {meta["topic"]}')
+            if meta.get("source_query"):
+                meta_bits.append(f'matched q: {meta["source_query"][:60]}')
+            meta_line = " · ".join(meta_bits) or "retrieved"
+            rank = ["1st", "2nd", "3rd", "4th"][i]
+            st.markdown(
+                f'<div class="src-card {cls}"><strong>{rank}</strong> — {src["content"][:220]}'
+                f'{"…" if len(src["content"]) > 220 else ""}'
+                f'<div class="src-meta">{meta_line}</div></div>',
+                unsafe_allow_html=True,
+            )
+
+
+def build_transcript_md() -> str:
+    lines = [
+        f"# ChatSolveAI Conversation",
+        f"_Session `{st.session_state.session_id}` · "
+        f"exported {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}_",
+        "",
+    ]
+    for m in st.session_state.messages:
+        who = "**🧑 You**" if m["role"] == "user" else "**🤖 ChatSolveAI**"
+        lines.append(f"{who}\n\n{m['content']}\n")
+        if m["role"] == "assistant" and m.get("meta"):
+            meta = m["meta"]
+            lines.append(f"> intent: {meta.get('intent','general')} · "
+                         f"confidence: {int(float(meta.get('confidence',0))*100)}% · "
+                         f"latency: {meta.get('latency_ms',0)} ms\n")
+    return "\n".join(lines)
+
+
+def submit_query(query: str, append_user: bool = True) -> bool:
+    if not query or not str(query).strip():
+        return False
+    if append_user:
+        st.session_state.messages.append({"role": "user", "content": query})
+
+    with st.chat_message("user", avatar=USER_AVATAR):
+        st.markdown(query)
+
+    with st.chat_message("assistant", avatar=ASSISTANT_AVATAR):
+        output_box = st.empty()
+        if USE_STREAMING:
+            result = call_chat_stream(query, output_box=output_box)
+        else:
+            with st.spinner("Thinking…"):
+                result = call_chat(query)
+            if result:
+                output_box.markdown(result.get("answer", ""))
+
+    if not result:
+        if append_user and (st.session_state.messages and
+                            st.session_state.messages[-1]["role"] == "user" and
+                            st.session_state.messages[-1]["content"] == query):
+            st.session_state.messages.pop()
+        return False
+
+    answer     = result["answer"]
+    sources    = result.get("source_documents", [])
+    meta = {
+        "intent":     result.get("intent", "general"),
+        "confidence": result.get("confidence", 0.0),
+        "latency_ms": result.get("latency_ms", 0),
+        "condensed_query": result.get("condensed_query", query),
+    }
+    suggestions = call_suggest(answer)
+    st.session_state.messages.append({
+        "role": "assistant", "content": answer, "sources": sources,
+        "meta": meta, "followups": suggestions,
+    })
+    st.session_state.last_sources = sources
+    st.session_state.last_meta    = meta
+    return True
+
+
+def _perform_full_reset():
+    try:
+        st.query_params.clear()
+    except Exception:
+        pass
+    api_health.clear()
+    st.session_state["session_id"]    = str(uuid.uuid4())
+    st.session_state["conv_id"]       = str(uuid.uuid4())[:8]
+    st.session_state["messages"]      = []
+    st.session_state["last_sources"]  = []
+    st.session_state["last_meta"]     = {}
+    st.session_state["pending_query"] = None
+    st.session_state["pending_append_user"] = True
+    st.session_state["history_loaded_for"] = None
+    st.session_state.pop("followups", None)
+    _sync_session_url()
+    for key in list(st.session_state.keys()):
+        if isinstance(key, str) and key.startswith(("fb_", "up_", "down_", "fu_", "chip_", "followup_")):
+            del st.session_state[key]
+
+
+# ── Sidebar (only on the App page) ───────────────────────────────
 if st.session_state.get("_current_page", "app") == "app":
     with st.sidebar:
         st.image("https://img.icons8.com/fluency/96/chatbot.png", width=64)
         st.title("ChatSolveAI")
-        st.caption(
-            "LangChain · FAISS · GPT-3.5-turbo  \n"
-            "MongoDB · FastAPI · Docker · HF Spaces"
-        )
+        st.caption("LangChain · FAISS · GPT-3.5-turbo\nMongoDB · FastAPI · Docker · HF Spaces")
         st.divider()
 
         healthy = api_health()
@@ -163,9 +449,7 @@ if st.session_state.get("_current_page", "app") == "app":
             st.success("API connected", icon="✅")
         else:
             st.error(f"API unreachable at {API_URL}", icon="🔴")
-            st.info(
-                "Cold‑start may be needed — wait ~30 s and try again."
-            )
+            st.info("Cold‑start may be needed — wait ~30 s and try again.")
 
         st.caption(f"Session: `{st.session_state.session_id[:8]}…`")
         st.divider()
@@ -176,16 +460,13 @@ if st.session_state.get("_current_page", "app") == "app":
             st.rerun()
 
         if st.session_state.messages:
-            st.download_button(
-                "⬇️ Export chat (.md)",
-                data=build_transcript_md(),
-                file_name=f"chatsolveai_{st.session_state.session_id[:8]}.md",
-                mime="text/markdown",
-                use_container_width=True,
-            )
+            st.download_button("⬇️ Export chat (.md)",
+                               data=build_transcript_md(),
+                               file_name=f"chatsolveai_{st.session_state.session_id[:8]}.md",
+                               mime="text/markdown", use_container_width=True)
 else:
-    # Admin dashboard gets an absolutely empty sidebar
     st.sidebar.empty()
+
 
 # ── Main chat UI ────────────────────────────────────────────────
 st.markdown('<div class="hero-title">💬 ChatSolveAI — Customer Support</div>',
