@@ -58,4 +58,4 @@ jobs:
           python-version: "3.11"
       - name: Syntax check all .py files
         run: |
-          python -m compileall -q api pipeline tests app.py
+          python -m compileall -q api pipeline tests App.py
