@@ -13,7 +13,6 @@ Run via Docker (recommended):
 
 from __future__ import annotations
 
-import html
 import json
 import os
 import time
@@ -452,7 +451,12 @@ def confidence_class(c: float) -> str:
 
 
 def render_meta(meta: dict):
-    """Intent pill + confidence meter + latency."""
+    """Intent pill + confidence meter + latency.
+    
+    All three pills are always shown for a polished, consistent look.
+    Zero values still appear (e.g. "0% confidence", "⚡ 0 ms") – this
+    is intentional and matches the original v2.1 design.
+    """
     if not meta:
         return
     intent = meta.get("intent", "general")
@@ -461,7 +465,7 @@ def render_meta(meta: dict):
     lat    = int(meta.get("latency_ms", 0))
     pill_class = confidence_class(conf)
 
-    # Always show all three pills, even if confidence/latency are zero
+    # Always show all three pills
     pills_html = (
         f'<span class="pill">{info["emoji"]} {info["label"]}</span>'
         f'<span class="pill {pill_class}">{int(conf*100)}% confidence</span>'
@@ -511,6 +515,35 @@ def render_sources(sources: list[dict]):
                 f'</div>',
                 unsafe_allow_html=True,
             )
+
+
+def render_message_content(msg: dict):
+    """Render a chat bubble's body.
+    Assistant content is rendered as markdown (so bullets / **bold** /
+    `code` stay formatted), and the citation superscripts are appended
+    as a separate small markdown block so they don't fight Streamlit's
+    markdown parser.
+    """
+    content = msg.get("content", "")
+    role    = msg.get("role")
+
+    if role != "assistant":
+        st.markdown(content)
+        return
+
+    st.markdown(content)
+
+    sources = msg.get("sources") or []
+    if not sources:
+        return
+
+    markers = " ".join(
+        f"<sup>[{i + 1}]</sup>" for i in range(min(len(sources), 4))
+    )
+    st.markdown(
+        f'<span style="opacity:0.75;">{markers}</span>',
+        unsafe_allow_html=True,
+    )
 
 
 def build_transcript_md() -> str:
@@ -619,6 +652,12 @@ def _perform_full_reset():
 with st.sidebar:
     st.image("https://img.icons8.com/fluency/96/chatbot.png", width=64)
     st.title("ChatSolveAI")
+    # Tech stack lives at the top of the sidebar (single rendering site).
+    # Previously this was duplicated as a sidebar footer too — Streamlit
+    # Cloud was rendering the bottom block twice after `st.rerun()`
+    # regardless of element type (`st.markdown` with `<small><br></small>`,
+    # then `st.caption` with markdown soft-break — both leaked). Single
+    # caption at the top, no bottom footer = no possible duplication.
     st.caption(
         "LangChain · FAISS · GPT-3.5-turbo  \n"
         "MongoDB · FastAPI · Docker · HF Spaces"
@@ -680,7 +719,9 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# Process any pending query FIRST
+# Process any pending query FIRST — this lives outside the chat layout
+# so the new turn ends up in `st.session_state.messages` *before* we
+# decide which branch (empty state vs history) to render.
 if st.session_state.pending_query:
     if healthy:
         q = st.session_state.pending_query
@@ -697,7 +738,15 @@ if st.session_state.pending_query:
         st.session_state.pending_query = None
         st.session_state.pending_append_user = True
 
+# Mutually-exclusive empty-state vs history rendering — same pattern
+# FinSight AI uses for its Strategy Copilot tab. Critical detail:
+# when there are no messages, the history container is NEVER created.
+# When New chat sets messages = [] and reruns, the entire chat
+# container disappears from the element tree, so Streamlit cannot
+# leave stale `st.chat_message` DOM behind — there is no parent
+# element for those children to live under anymore.
 if not st.session_state.messages:
+    # Empty state — example chips only.
     st.markdown("**👋 Try one of these to get started:**")
     cols = st.columns(2)
     _conv = st.session_state.conv_id
@@ -713,6 +762,10 @@ if not st.session_state.messages:
             )
             st.markdown('</div>', unsafe_allow_html=True)
 else:
+    # History state — fixed-height scrollable container holds the
+    # chat_message bubbles. The container only exists in this branch,
+    # so the empty-state branch is incapable of inheriting any DOM
+    # from a previous frame.
     msgs     = st.session_state.messages
     last_idx = len(msgs) - 1
     conv_id  = st.session_state.conv_id
@@ -723,21 +776,12 @@ else:
         for idx, msg in enumerate(msgs):
             avatar = USER_AVATAR if msg["role"] == "user" else ASSISTANT_AVATAR
             with st.chat_message(msg["role"], avatar=avatar):
-                # ── Restored rendering: plain Markdown + citation markers ──
-                if msg["role"] == "assistant":
-                    st.markdown(msg["content"])
-                    sources = msg.get("sources") or []
-                    if sources:
-                        markers = " ".join(f"[{i+1}]" for i in range(min(len(sources), 4)))
-                        st.markdown(f"<sup style='color: #9ea3b0;'>{markers}</sup>", unsafe_allow_html=True)
-                else:
-                    st.markdown(msg["content"])
-
+                render_message_content(msg)
                 if msg["role"] == "assistant":
                     render_meta(msg.get("meta", {}))
                     render_sources(msg.get("sources", []))
 
-                    # Feedback buttons
+                    # Feedback buttons (stay inside the message).
                     fb_key = f"fb_{conv_id}_{idx}"
                     if st.session_state.get(fb_key) is None:
                         c1, c2, _ = st.columns([1, 1, 8])
@@ -764,7 +808,18 @@ else:
                                 del st.session_state[fb_key]
                                 st.rerun()
 
-    # Follow‑up suggestions
+    # Follow-up suggestion buttons live OUTSIDE the scrollable history
+    # so the input bar doesn't get pushed off-screen, but they're
+    # wrapped in their OWN dedicated `st.container()`. Why a wrapper:
+    # `st.button` widgets emitted at the bare `else:` scope leaked
+    # past the empty-state branch on Streamlit Cloud — the chip pills
+    # from the previous conversation stayed painted alongside the
+    # freshly rendered example chips after **New chat**. The fix is
+    # the same trick the history container uses: when the `else:`
+    # branch isn't taken, the wrapper container is never created,
+    # so its parent element is gone and Streamlit removes the entire
+    # chip subtree in one atomic step (the diff path that worked
+    # for `history_container` in PR #25 also works here).
     chips_container = st.container()
     with chips_container:
         if msgs[-1]["role"] == "assistant":
