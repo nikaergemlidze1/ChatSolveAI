@@ -8,6 +8,7 @@ RUN pip install --upgrade pip && \
     pip install --no-cache-dir -r requirements.streamlit.txt
 
 COPY app.py .
+COPY pages/ ./pages/
 
 RUN useradd --no-create-home appuser && chown -R appuser /app
 USER appuser
