@@ -28,6 +28,7 @@ st.session_state["_page"] = "admin"
 # If we just arrived from the App page, bump the render id and do a clean rerun
 if previous_page == "app":
     st.session_state._admin_render_id += 1
+    st.session_state["_clear_app"] = True
     st.rerun()
 
 # ── Clear the sidebar of any App‑page remnants ──────────────────────
@@ -92,6 +93,10 @@ except Exception:
 # ══════════════════════════════════════════════
 # Dashboard UI (isolated container, key changes on switch)
 # ══════════════════════════════════════════════
+if st.session_state.get("_clear_app"):
+    st.session_state.pop("_clear_app")
+    if "_app_render_id" in st.session_state:
+        st.container(key=f"app_main_{st.session_state._app_render_id}")
 main_container = st.container(key=f"admin_main_{st.session_state._admin_render_id}")
 with main_container:
     st.title("ChatSolveAI Admin Dashboard")

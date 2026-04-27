@@ -39,6 +39,7 @@ if "_app_render_id" not in st.session_state:
 # ══════════════════════════════════════════════
 if st.session_state.get("_page") == "admin":
     st.session_state._app_render_id += 1
+    st.session_state["_clear_admin"] = True
     st.session_state["_page"] = "app"
     st.rerun()
 st.session_state["_page"] = "app"
@@ -64,7 +65,11 @@ st.markdown("""<style>
 .chip-btn button:hover{background:rgba(79,139,249,.15)!important;border-color:#4F8BF9!important}
 #MainMenu,footer{visibility:hidden}
 </style>""", unsafe_allow_html=True)
-
+# Replace the old admin container with an empty one so its charts disappear.
+if st.session_state.get("_clear_admin"):
+    st.session_state.pop("_clear_admin")
+    if "_admin_render_id" in st.session_state:
+        st.container(key=f"admin_main_{st.session_state._admin_render_id}")
 # ══════════════════════════════════════════════
 # Session state helpers
 # ══════════════════════════════════════════════
