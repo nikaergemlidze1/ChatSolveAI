@@ -3,14 +3,24 @@ import requests
 import os
 from datetime import datetime
 
-# ── Page config ─────────────────────────────────────────────────────────
 st.set_page_config(page_title="ChatSolveAI Admin", page_icon="📊", layout="wide")
 
-# ── Wipe any chat state that might have drifted over ────────────────────
+# ── Wipe any chat state ──────────────────────────────────────────
 for key in ("messages", "pending_query", "last_sources", "last_meta", "followups"):
     st.session_state.pop(key, None)
 
-# ── Password gate (optional) ────────────────────────────────────────────
+# ── Hide sidebar + chat input on this page ───────────────────────
+st.markdown(
+    """
+    <style>
+    [data-testid="stSidebar"] { display: none !important; }
+    .stChatInput { display: none !important; }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+# ── Password gate ─────────────────────────────────────────────────
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD") or st.secrets.get("ADMIN_PASSWORD", "")
 if ADMIN_PASSWORD:
     if not st.session_state.get("admin_ok"):
@@ -23,13 +33,13 @@ if ADMIN_PASSWORD:
         if submitted and password != ADMIN_PASSWORD:
             st.error("Invalid password.")
         st.stop()
-    col_blank, col_btn = st.columns([6, 1])
-    with col_btn:
+    col1, col2 = st.columns([6, 1])
+    with col2:
         if st.button("Sign out"):
             st.session_state.pop("admin_ok")
             st.rerun()
 
-# ── Backend connection ───────────────────────────────────────────────────
+# ── Backend connection ────────────────────────────────────────────
 API_URL = os.getenv("API_URL", "https://Nikollass-chatsolveai-api.hf.space").rstrip("/")
 API_KEY = os.getenv("API_KEY") or st.secrets.get("API_KEY", "")
 
@@ -52,18 +62,7 @@ except Exception:
     st.warning("Backend unreachable – analytics unavailable.")
     st.stop()
 
-# ── Hide any leftover chat input (defence in depth) ─────────────────────
-st.markdown(
-    """
-    <style>
-    /* Hide the global chat input if it appears on this page */
-    .stChatInput { display: none !important; }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
-
-# ── Dashboard UI ─────────────────────────────────────────────────────────
+# ── Dashboard UI ───────────────────────────────────────────────────
 st.title("ChatSolveAI Admin Dashboard")
 
 c1, c2, c3, c4 = st.columns(4)
