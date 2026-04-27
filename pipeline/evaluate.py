@@ -11,8 +11,17 @@ print(results)
 from __future__ import annotations
 
 import math
-from .retrieval import HybridRetriever
-from .reranker  import CrossEncoderReranker
+from typing import Protocol
+
+
+class RetrieverLike(Protocol):
+    def search(self, query: str, top_k: int | None = None) -> list[dict]:
+        ...
+
+
+class RerankerLike(Protocol):
+    def rerank(self, query: str, candidates: list[dict], top_k: int) -> list[dict]:
+        ...
 
 # ── Ground-truth evaluation set ───────────────────────────────────────────────
 # (query, expected_response) pairs — hand-curated from predefined_responses.json
@@ -95,8 +104,8 @@ def _ndcg(relevances: list[float]) -> float:
 # ── Main evaluation function ───────────────────────────────────────────────────
 
 def evaluate(
-    retriever: HybridRetriever,
-    reranker:  CrossEncoderReranker,
+    retriever: RetrieverLike,
+    reranker:  RerankerLike,
     eval_set:  list[tuple[str, str]] = EVAL_SET,
     top_k:     int = 5,
 ) -> dict:

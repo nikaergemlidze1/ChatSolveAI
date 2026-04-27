@@ -22,9 +22,7 @@ jobs:
       - name: Install minimal test dependencies
         run: |
           python -m pip install --upgrade pip
-          # Pydantic + fastapi are enough for the model and intent tests —
-          # no OpenAI / LangChain required.
-          pip install "pydantic>=2.7" "fastapi>=0.111" pytest
+          pip install -r requirements.api.txt pytest httpx
 
       - name: Run unit tests
         run: pytest -q tests/
