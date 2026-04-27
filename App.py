@@ -28,11 +28,46 @@ USE_STREAMING    = os.getenv("USE_STREAMING","true").lower() not in {"0","false"
 def _api_headers(): return {"X-API-Key": API_KEY} if API_KEY else {}
 
 # ══════════════════════════════════════════════
-# Session helpers
+# Page setup (single set_page_config for the whole app)
+# ══════════════════════════════════════════════
+st.set_page_config(page_title="ChatSolveAI", page_icon="🤖", layout="wide",
+                   initial_sidebar_state="expanded")
+
+# ══════════════════════════════════════════════
+# Page isolation guard
+# ══════════════════════════════════════════════
+if st.session_state.get("_page") == "admin":
+    st.session_state["_page"] = "app"
+    st.rerun()
+st.session_state["_page"] = "app"
+
+# ══════════════════════════════════════════════
+# CSS
+# ══════════════════════════════════════════════
+st.markdown("""<style>
+:root {--accent:#4F8BF9;--accent-2:#8E6BFF;}
+.hero-title{background:linear-gradient(90deg,var(--accent)0%,var(--accent-2)100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;font-weight:800;font-size:2rem;margin-bottom:0.2rem}
+.hero-sub{color:#9ea3b0;margin-bottom:1.2rem}
+.pill{display:inline-flex;align-items:center;gap:4px;padding:2px 10px;border-radius:999px;font-size:0.72rem;font-weight:600;background:rgba(79,139,249,.12);color:var(--accent);margin-right:6px}
+.pill-green{background:rgba(76,175,80,.15);color:#81c784}
+.pill-amber{background:rgba(255,152,0,.15);color:#ffb74d}
+.pill-red{background:rgba(244,67,54,.15);color:#e57373}
+.pill-purple{background:rgba(156,39,176,.15);color:#ba68c8}
+.meter-wrap{background:rgba(255,255,255,.06);border-radius:6px;height:6px;overflow:hidden;margin-top:4px}
+.meter-fill{height:100%;background:linear-gradient(90deg,#4CAF50,#81C784)}
+.src-card{background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);border-left:3px solid rgba(79,139,249,.8);padding:8px 12px;border-radius:6px;margin-bottom:8px;font-size:.82rem;color:#d4d7dd}
+.src-card.top{border-left-color:#66bb6a;background:rgba(102,187,106,.08)}
+.src-meta{font-size:.68rem;color:#7a8190;margin-top:4px}
+.chip-btn button{width:100%!important;background:rgba(79,139,249,.08)!important;border:1px solid rgba(255,255,255,.08)!important;color:#d4d7dd!important;text-align:left!important;padding:10px 14px!important;border-radius:10px!important}
+.chip-btn button:hover{background:rgba(79,139,249,.15)!important;border-color:#4F8BF9!important}
+#MainMenu,footer{visibility:hidden}
+</style>""", unsafe_allow_html=True)
+
+# ══════════════════════════════════════════════
+# Session state helpers
 # ══════════════════════════════════════════════
 def _session_id_from_url():
-    try:
-        sid = st.query_params.get("sid")
+    try: sid = st.query_params.get("sid")
     except: return None
     if isinstance(sid, list): sid = sid[0] if sid else None
     return str(sid).strip() if sid and len(str(sid))<=128 else None
@@ -66,44 +101,6 @@ EXAMPLE_QUESTIONS = [
     ("💳","How do I get a refund?"), ("🚫","How do I cancel my subscription?")
 ]
 
-# ══════════════════════════════════════════════
-# Page isolation – prevent cross‑page leakage
-# ══════════════════════════════════════════════
-st.set_page_config(page_title="ChatSolveAI", page_icon="🤖", layout="wide",
-                   initial_sidebar_state="expanded")
-
-# If we just came from the admin page, do a clean rerun to discard any stale UI
-if st.session_state.get("_page") == "admin":
-    st.session_state["_page"] = "app"
-    st.rerun()
-else:
-    st.session_state["_page"] = "app"
-
-# ══════════════════════════════════════════════
-# CSS (hero gradient, pills, etc.)
-# ══════════════════════════════════════════════
-st.markdown("""<style>
-:root {--accent:#4F8BF9;--accent-2:#8E6BFF;}
-.hero-title{background:linear-gradient(90deg,var(--accent)0%,var(--accent-2)100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;font-weight:800;font-size:2rem;margin-bottom:0.2rem}
-.hero-sub{color:#9ea3b0;margin-bottom:1.2rem}
-.pill{display:inline-flex;align-items:center;gap:4px;padding:2px 10px;border-radius:999px;font-size:0.72rem;font-weight:600;background:rgba(79,139,249,.12);color:var(--accent);margin-right:6px}
-.pill-green{background:rgba(76,175,80,.15);color:#81c784}
-.pill-amber{background:rgba(255,152,0,.15);color:#ffb74d}
-.pill-red{background:rgba(244,67,54,.15);color:#e57373}
-.pill-purple{background:rgba(156,39,176,.15);color:#ba68c8}
-.meter-wrap{background:rgba(255,255,255,.06);border-radius:6px;height:6px;overflow:hidden;margin-top:4px}
-.meter-fill{height:100%;background:linear-gradient(90deg,#4CAF50,#81C784)}
-.src-card{background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);border-left:3px solid rgba(79,139,249,.8);padding:8px 12px;border-radius:6px;margin-bottom:8px;font-size:.82rem;color:#d4d7dd}
-.src-card.top{border-left-color:#66bb6a;background:rgba(102,187,106,.08)}
-.src-meta{font-size:.68rem;color:#7a8190;margin-top:4px}
-.chip-btn button{width:100%!important;background:rgba(79,139,249,.08)!important;border:1px solid rgba(255,255,255,.08)!important;color:#d4d7dd!important;text-align:left!important;padding:10px 14px!important;border-radius:10px!important}
-.chip-btn button:hover{background:rgba(79,139,249,.15)!important;border-color:#4F8BF9!important}
-#MainMenu,footer{visibility:hidden}
-</style>""", unsafe_allow_html=True)
-
-# ══════════════════════════════════════════════
-# Session state
-# ══════════════════════════════════════════════
 def _init_state():
     url_id = _session_id_from_url()
     for k,v in {"session_id":url_id or str(uuid.uuid4()),"conv_id":str(uuid.uuid4())[:8],
@@ -116,7 +113,7 @@ _adopt_url_session()
 _sync_session_url()
 
 # ══════════════════════════════════════════════
-# API calls
+# API helpers (identical to before)
 # ══════════════════════════════════════════════
 @st.cache_data(ttl=15,show_spinner=False)
 def api_health():
@@ -283,101 +280,106 @@ def _perform_full_reset():
             del st.session_state[k]
 
 # ══════════════════════════════════════════════
-# Sidebar (always visible)
+# Sidebar – only on App page
 # ══════════════════════════════════════════════
-with st.sidebar:
-    st.image("https://img.icons8.com/fluency/96/chatbot.png",width=64)
-    st.title("ChatSolveAI")
-    st.caption("LangChain · FAISS · GPT‑3.5‑turbo\nMongoDB · FastAPI · Docker · HF Spaces")
-    st.divider()
-    healthy = api_health()
-    if healthy:
-        st.success("API connected",icon="✅")
-    else:
-        st.error(f"API unreachable at {API_URL}",icon="🔴")
-    st.caption(f"Session: `{st.session_state.session_id[:8]}…`")
-    st.divider()
-    if st.button("🗑 New chat",key="btn_new_chat",use_container_width=True):
-        _perform_full_reset()
-        st.rerun()
-    if st.session_state.messages:
-        st.download_button("⬇️ Export chat (.md)",data=build_transcript_md(),
-                           file_name=f"chatsolveai_{st.session_state.session_id[:8]}.md",
-                           mime="text/markdown",use_container_width=True)
-
-# ══════════════════════════════════════════════
-# Main chat UI
-# ══════════════════════════════════════════════
-st.markdown('<div class="hero-title">💬 ChatSolveAI — Customer Support</div>',unsafe_allow_html=True)
-st.markdown('<p class="hero-sub">LangChain RAG · GPT‑3.5‑turbo · MongoDB · FastAPI …</p>',unsafe_allow_html=True)
-
-if st.session_state.pending_query:
-    if healthy:
-        q = st.session_state.pending_query
-        append = st.session_state.get("pending_append_user",True)
-        st.session_state.pending_query = None
-        st.session_state.pending_append_user = True
-        if submit_query(q,append_user=append):
+if st.session_state.get("_page") == "app":
+    with st.sidebar:
+        st.image("https://img.icons8.com/fluency/96/chatbot.png",width=64)
+        st.title("ChatSolveAI")
+        st.caption("LangChain · FAISS · GPT‑3.5‑turbo\nMongoDB · FastAPI · Docker · HF Spaces")
+        st.divider()
+        healthy = api_health()
+        if healthy:
+            st.success("API connected",icon="✅")
+        else:
+            st.error(f"API unreachable at {API_URL}",icon="🔴")
+        st.caption(f"Session: `{st.session_state.session_id[:8]}…`")
+        st.divider()
+        if st.button("🗑 New chat",key="btn_new_chat",use_container_width=True):
+            _perform_full_reset()
             st.rerun()
-    else:
-        st.warning("Backend cold‑starting … try again in ~30s.")
-        st.session_state.pending_query = None
-
-if not st.session_state.messages:
-    st.markdown("**👋 Try one of these to get started:**")
-    cols = st.columns(2)
-    conv = st.session_state.conv_id
-    for i,(emoji,q) in enumerate(EXAMPLE_QUESTIONS):
-        with cols[i%2]:
-            st.markdown('<div class="chip-btn">',unsafe_allow_html=True)
-            st.button(f"{emoji}   {q}",key=f"chip_{conv}_{i}",use_container_width=True,on_click=_queue_query,args=(q,))
-            st.markdown('</div>',unsafe_allow_html=True)
+        if st.session_state.messages:
+            st.download_button("⬇️ Export chat (.md)",data=build_transcript_md(),
+                               file_name=f"chatsolveai_{st.session_state.session_id[:8]}.md",
+                               mime="text/markdown",use_container_width=True)
 else:
-    msgs = st.session_state.messages
-    last_idx = len(msgs)-1
-    conv_id = st.session_state.conv_id
-    with st.container(height=900):
-        for idx,msg in enumerate(msgs):
-            avatar = USER_AVATAR if msg["role"]=="user" else ASSISTANT_AVATAR
-            with st.chat_message(msg["role"],avatar=avatar):
-                st.markdown(msg["content"])
-                if msg["role"]=="assistant":
-                    render_meta(msg.get("meta",{}))
-                    render_sources(msg.get("sources",[]))
-                    fb = f"fb_{conv_id}_{idx}"
-                    if st.session_state.get(fb) is None:
-                        c1,c2,_ = st.columns([1,1,8])
-                        with c1:
-                            if st.button("👍",key=f"up_{conv_id}_{idx}"):
-                                _record_feedback(idx,"up"); st.rerun()
-                        with c2:
-                            if st.button("👎",key=f"down_{conv_id}_{idx}"):
-                                _record_feedback(idx,"down"); st.rerun()
-                    else:
-                        rating = st.session_state[fb]
-                        st.caption(f"You rated: {'👍' if rating=='up' else '👎'}")
-                        if rating=="down" and st.button("Regenerate",key=f"regen_{conv_id}_{idx}"):
-                            _queue_regenerate(idx); del st.session_state[fb]; st.rerun()
-    with st.container():
-        if msgs[-1]["role"]=="assistant":
-            fu = msgs[-1].get("followups") or []
-            if fu:
-                st.markdown('<div style="margin-top:14px;font-weight:600;color:#c9b8ff;">💡 Suggested follow‑ups</div>',unsafe_allow_html=True)
-                cols = st.columns(len(fu))
-                clicked = None
-                for i,q in enumerate(fu):
-                    with cols[i]:
-                        st.markdown('<div class="chip-btn">',unsafe_allow_html=True)
-                        if st.button(q,key=f"fu_{conv_id}_{last_idx}_{i}",use_container_width=True):
-                            clicked = q
-                        st.markdown('</div>',unsafe_allow_html=True)
-                if clicked:
-                    st.session_state.pending_query = clicked
-                    st.rerun()
+    st.sidebar.empty()
 
-if prompt := st.chat_input("Ask about orders, billing, account, or technical issues…"):
-    if not healthy:
-        st.error("API unreachable.")
-        st.stop()
-    _queue_query(prompt)
-    st.rerun()
+# ══════════════════════════════════════════════
+# Main chat UI (wrapped in a container)
+# ══════════════════════════════════════════════
+main_container = st.container()
+with main_container:
+    st.markdown('<div class="hero-title">💬 ChatSolveAI — Customer Support</div>',unsafe_allow_html=True)
+    st.markdown('<p class="hero-sub">LangChain RAG · GPT‑3.5‑turbo · MongoDB · FastAPI …</p>',unsafe_allow_html=True)
+
+    if st.session_state.pending_query:
+        if healthy:
+            q = st.session_state.pending_query
+            append = st.session_state.get("pending_append_user",True)
+            st.session_state.pending_query = None
+            st.session_state.pending_append_user = True
+            if submit_query(q,append_user=append):
+                st.rerun()
+        else:
+            st.warning("Backend cold‑starting … try again in ~30s.")
+            st.session_state.pending_query = None
+
+    if not st.session_state.messages:
+        st.markdown("**👋 Try one of these to get started:**")
+        cols = st.columns(2)
+        conv = st.session_state.conv_id
+        for i,(emoji,q) in enumerate(EXAMPLE_QUESTIONS):
+            with cols[i%2]:
+                st.markdown('<div class="chip-btn">',unsafe_allow_html=True)
+                st.button(f"{emoji}   {q}",key=f"chip_{conv}_{i}",use_container_width=True,on_click=_queue_query,args=(q,))
+                st.markdown('</div>',unsafe_allow_html=True)
+    else:
+        msgs = st.session_state.messages
+        last_idx = len(msgs)-1
+        conv_id = st.session_state.conv_id
+        with st.container(height=900):
+            for idx,msg in enumerate(msgs):
+                avatar = USER_AVATAR if msg["role"]=="user" else ASSISTANT_AVATAR
+                with st.chat_message(msg["role"],avatar=avatar):
+                    st.markdown(msg["content"])
+                    if msg["role"]=="assistant":
+                        render_meta(msg.get("meta",{}))
+                        render_sources(msg.get("sources",[]))
+                        fb = f"fb_{conv_id}_{idx}"
+                        if st.session_state.get(fb) is None:
+                            c1,c2,_ = st.columns([1,1,8])
+                            with c1:
+                                if st.button("👍",key=f"up_{conv_id}_{idx}"):
+                                    _record_feedback(idx,"up"); st.rerun()
+                            with c2:
+                                if st.button("👎",key=f"down_{conv_id}_{idx}"):
+                                    _record_feedback(idx,"down"); st.rerun()
+                        else:
+                            rating = st.session_state[fb]
+                            st.caption(f"You rated: {'👍' if rating=='up' else '👎'}")
+                            if rating=="down" and st.button("Regenerate",key=f"regen_{conv_id}_{idx}"):
+                                _queue_regenerate(idx); del st.session_state[fb]; st.rerun()
+        with st.container():
+            if msgs[-1]["role"]=="assistant":
+                fu = msgs[-1].get("followups") or []
+                if fu:
+                    st.markdown('<div style="margin-top:14px;font-weight:600;color:#c9b8ff;">💡 Suggested follow‑ups</div>',unsafe_allow_html=True)
+                    cols = st.columns(len(fu))
+                    clicked = None
+                    for i,q in enumerate(fu):
+                        with cols[i]:
+                            st.markdown('<div class="chip-btn">',unsafe_allow_html=True)
+                            if st.button(q,key=f"fu_{conv_id}_{last_idx}_{i}",use_container_width=True):
+                                clicked = q
+                            st.markdown('</div>',unsafe_allow_html=True)
+                    if clicked:
+                        st.session_state.pending_query = clicked
+                        st.rerun()
+
+    if prompt := st.chat_input("Ask about orders, billing, account, or technical issues…"):
+        if not healthy:
+            st.error("API unreachable.")
+            st.stop()
+        _queue_query(prompt)
+        st.rerun()
