@@ -13,12 +13,11 @@ Run via Docker (recommended):
 
 from __future__ import annotations
 
-import io
+import html
 import json
 import os
 import threading
 import time
-import urllib.parse
 import uuid
 from datetime import datetime
 
@@ -44,11 +43,48 @@ API_KEY = _SECRET_API_KEY or os.getenv("API_KEY") or ""
 
 HEALTH_TIMEOUT_S = int(os.getenv("API_HEALTH_TIMEOUT", "20"))
 HEALTH_RETRIES   = int(os.getenv("API_HEALTH_RETRIES", "2"))
+USE_STREAMING    = os.getenv("USE_STREAMING", "true").lower() not in {"0", "false", "no"}
 
 
 def _api_headers() -> dict[str, str]:
     """Auth header for backend calls. Empty when API_KEY is unset (dev mode)."""
     return {"X-API-Key": API_KEY} if API_KEY else {}
+
+
+def _session_id_from_url() -> str | None:
+    try:
+        sid = st.query_params.get("sid")
+    except Exception:
+        return None
+    if isinstance(sid, list):
+        sid = sid[0] if sid else None
+    sid = str(sid or "").strip()
+    if not sid or len(sid) > 128:
+        return None
+    return sid
+
+
+def _sync_session_url() -> None:
+    try:
+        if st.query_params.get("sid") != st.session_state.session_id:
+            st.query_params["sid"] = st.session_state.session_id
+    except Exception:
+        pass
+
+
+def _adopt_url_session() -> None:
+    url_session_id = _session_id_from_url()
+    if not url_session_id or url_session_id == st.session_state.get("session_id"):
+        return
+
+    st.session_state["session_id"] = url_session_id
+    st.session_state["conv_id"] = str(uuid.uuid4())[:8]
+    st.session_state["messages"] = []
+    st.session_state["last_sources"] = []
+    st.session_state["last_meta"] = {}
+    st.session_state["pending_query"] = None
+    st.session_state["pending_append_user"] = True
+    st.session_state["history_loaded_for"] = None
 
 USER_AVATAR      = "🧑"
 ASSISTANT_AVATAR = "🤖"
@@ -198,13 +234,16 @@ st.markdown("""
 # ── Session state ─────────────────────────────────────────────────────────────
 
 def _init_state():
+    url_session_id = _session_id_from_url()
     defaults = {
-        "session_id":   str(uuid.uuid4()),
+        "session_id":   url_session_id or str(uuid.uuid4()),
         "conv_id":      str(uuid.uuid4())[:8],
         "messages":     [],
         "last_sources": [],
         "last_meta":    {},
         "pending_query": None,
+        "pending_append_user": True,
+        "history_loaded_for": None,
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -212,6 +251,8 @@ def _init_state():
     st.session_state.pop("followups", None)
 
 _init_state()
+_adopt_url_session()
+_sync_session_url()
 
 
 # ── API helpers ───────────────────────────────────────────────────────────────
@@ -256,6 +297,80 @@ def call_chat(query: str) -> dict | None:
                 continue
     st.error(f"Network error after retry: {last_err}")
     return None
+
+
+def call_chat_stream(query: str, output_box=None) -> dict | None:
+    """Streaming call — renders tokens live and returns the final response dict."""
+    answer_parts: list[str] = []
+    final_payload: dict = {}
+    last_err = None
+
+    try:
+        with requests.post(
+            f"{API_URL}/chat/stream",
+            json={"session_id": st.session_state.session_id, "query": query},
+            headers=_api_headers(),
+            timeout=90,
+            stream=True,
+        ) as r:
+            if not r.ok:
+                st.error(f"API error {r.status_code}: {r.text[:200]}")
+                return None
+
+            for raw_line in r.iter_lines(decode_unicode=True):
+                if not raw_line or not raw_line.startswith("data:"):
+                    continue
+
+                payload = raw_line.removeprefix("data:").strip()
+                if payload == "[DONE]":
+                    break
+
+                try:
+                    event = json.loads(payload)
+                except json.JSONDecodeError:
+                    continue
+
+                if "token" in event:
+                    answer_parts.append(event["token"])
+                    if output_box is not None:
+                        output_box.markdown("".join(answer_parts))
+                    continue
+
+                if event.get("event") == "final":
+                    final_payload = event
+
+    except requests.RequestException as e:
+        last_err = str(e)
+
+    if final_payload:
+        final_payload.setdefault("answer", "".join(answer_parts))
+        return final_payload
+
+    if answer_parts:
+        return {
+            "answer": "".join(answer_parts),
+            "source_documents": [],
+            "confidence": 0.0,
+            "condensed_query": query,
+            "intent": "general",
+            "latency_ms": 0,
+        }
+
+    if last_err:
+        st.error(f"Network error while streaming: {last_err}")
+    return None
+
+
+def call_history(session_id: str) -> list[dict] | None:
+    try:
+        r = requests.get(f"{API_URL}/history/{session_id}", timeout=15)
+        if r.status_code == 404:
+            return []
+        if not r.ok:
+            return None
+        return r.json().get("messages", [])
+    except requests.RequestException:
+        return None
 
 
 def call_suggest(last_answer: str) -> list[str]:
@@ -314,6 +429,20 @@ def _queue_query(query: str):
     if not query:
         return
     st.session_state.pending_query = query
+    st.session_state.pending_append_user = True
+
+
+def _queue_regenerate(assistant_idx: int):
+    msgs = st.session_state.messages
+    if assistant_idx <= 0 or assistant_idx >= len(msgs):
+        return
+    if msgs[assistant_idx]["role"] != "assistant" or msgs[assistant_idx - 1]["role"] != "user":
+        return
+
+    query = msgs[assistant_idx - 1]["content"]
+    del msgs[assistant_idx]
+    st.session_state.pending_query = query
+    st.session_state.pending_append_user = False
 
 
 def _record_feedback(idx: int, rating: str):
@@ -390,6 +519,25 @@ def render_sources(sources: list[dict]):
             )
 
 
+def render_message_content(msg: dict):
+    content = msg.get("content", "")
+    if msg.get("role") != "assistant":
+        st.markdown(content)
+        return
+
+    sources = msg.get("sources") or []
+    if not sources:
+        st.markdown(content)
+        return
+
+    markers = " ".join(
+        f"<sup>[{i + 1}]</sup>"
+        for i in range(min(len(sources), 4))
+    )
+    safe_content = html.escape(content).replace("\n", "<br>")
+    st.markdown(f"{safe_content} {markers}", unsafe_allow_html=True)
+
+
 def build_transcript_md() -> str:
     """Export the conversation as Markdown for download."""
     lines = [
@@ -411,23 +559,34 @@ def build_transcript_md() -> str:
     return "\n".join(lines)
 
 
-def submit_query(query: str):
+def submit_query(query: str, append_user: bool = True) -> bool:
     """Central entry point — always used whether query came from chip or input."""
     if not query or not str(query).strip():
-        return
-    st.session_state.messages.append({"role": "user", "content": query})
+        return False
+    if append_user:
+        st.session_state.messages.append({"role": "user", "content": query})
 
-    with st.spinner("Thinking…"):
-        result = call_chat(query)
+    with st.chat_message("user", avatar=USER_AVATAR):
+        st.markdown(query)
+
+    with st.chat_message("assistant", avatar=ASSISTANT_AVATAR):
+        output_box = st.empty()
+        if USE_STREAMING:
+            result = call_chat_stream(query, output_box=output_box)
+        else:
+            with st.spinner("Thinking…"):
+                result = call_chat(query)
+            if result:
+                output_box.markdown(result.get("answer", ""))
 
     if not result:
-        if (
+        if append_user and (
             st.session_state.messages
             and st.session_state.messages[-1]["role"] == "user"
             and st.session_state.messages[-1]["content"] == query
         ):
             st.session_state.messages.pop()
-        return
+        return False
 
     answer     = result["answer"]
     sources    = result.get("source_documents", [])
@@ -449,6 +608,7 @@ def submit_query(query: str):
     })
     st.session_state.last_sources = sources
     st.session_state.last_meta    = meta
+    return True
 
 
 # ── Reset handler (applied before any UI) ─────────────────────────────────────
@@ -470,7 +630,10 @@ def _perform_full_reset():
     st.session_state["last_sources"]  = []
     st.session_state["last_meta"]     = {}
     st.session_state["pending_query"] = None
+    st.session_state["pending_append_user"] = True
+    st.session_state["history_loaded_for"] = None
     st.session_state.pop("followups", None)
+    _sync_session_url()
 
     # Remove stale widget keys from the old conversation
     for key in list(st.session_state.keys()):
@@ -534,6 +697,22 @@ with st.sidebar:
         )
 
 
+if (
+    healthy
+    and not st.session_state.messages
+    and st.session_state.history_loaded_for != st.session_state.session_id
+):
+    restored_messages = call_history(st.session_state.session_id)
+    if restored_messages is not None:
+        if restored_messages:
+            st.session_state.messages = [
+                {"role": m["role"], "content": m["content"]}
+                for m in restored_messages
+                if m.get("role") in {"user", "assistant"} and m.get("content")
+            ]
+        st.session_state.history_loaded_for = st.session_state.session_id
+
+
 # ── Main chat UI ──────────────────────────────────────────────────────────────
 
 st.markdown('<div class="hero-title">💬 ChatSolveAI — Customer Support</div>',
@@ -550,14 +729,18 @@ st.markdown(
 if st.session_state.pending_query:
     if healthy:
         q = st.session_state.pending_query
+        append_user = bool(st.session_state.get("pending_append_user", True))
         st.session_state.pending_query = None
-        submit_query(q)
+        st.session_state.pending_append_user = True
+        if submit_query(q, append_user=append_user):
+            st.rerun()
     else:
         st.warning(
             "Backend is waking up and didn't answer in time. "
             "Wait ~30s and try again."
         )
         st.session_state.pending_query = None
+        st.session_state.pending_append_user = True
 
 # Mutually-exclusive empty-state vs history rendering — same pattern
 # FinSight AI uses for its Strategy Copilot tab. Critical detail:
@@ -597,7 +780,7 @@ else:
         for idx, msg in enumerate(msgs):
             avatar = USER_AVATAR if msg["role"] == "user" else ASSISTANT_AVATAR
             with st.chat_message(msg["role"], avatar=avatar):
-                st.markdown(msg["content"])
+                render_message_content(msg)
                 if msg["role"] == "assistant":
                     render_meta(msg.get("meta", {}))
                     render_sources(msg.get("sources", []))
@@ -619,6 +802,15 @@ else:
                         st.caption(
                             f"You rated this answer: {'👍' if rating == 'up' else '👎'}"
                         )
+                        if rating == "down":
+                            if st.button(
+                                "Regenerate",
+                                key=f"regen_{conv_id}_{idx}",
+                                help="Try this question again",
+                            ):
+                                _queue_regenerate(idx)
+                                del st.session_state[fb_key]
+                                st.rerun()
 
     # Follow-up suggestion buttons live OUTSIDE the scrollable history
     # so the input bar doesn't get pushed off-screen, but they're
