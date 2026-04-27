@@ -253,6 +253,33 @@ class LangChainRAG:
         self._retrieval_cache.set(key, scored)
         return scored
 
+    @staticmethod
+    def _confidence_from_scored(scored: list[tuple[Document, float]]) -> float:
+        """Convert the top FAISS L2 score into cosine-like confidence."""
+        top_score = float(scored[0][1]) if scored else 2.0
+        return max(0.0, min(1.0, 1.0 - (top_score ** 2) / 2.0))
+
+    @staticmethod
+    def _context_from_scored(scored: list[tuple[Document, float]]) -> str:
+        """Format only plausibly relevant docs as prompt context."""
+        RELEVANCE_L2 = 1.18  # cos ≈ 0.30
+        relevant_docs = [d for d, s in scored if float(s) <= RELEVANCE_L2]
+        return "\n\n".join(
+            f"[Source {i + 1}] {doc.page_content}"
+            for i, doc in enumerate(relevant_docs)
+        ) or "(no relevant context retrieved)"
+
+    @staticmethod
+    def _serialize_scored_docs(scored: list[tuple[Document, float]]) -> list[dict]:
+        return [
+            {
+                "content":  doc.page_content,
+                "metadata": doc.metadata,
+                "score":    float(score),
+            }
+            for doc, score in scored
+        ]
+
     def _update_memory(
         self,
         history: list[BaseMessage],
@@ -297,20 +324,14 @@ class LangChainRAG:
         # FAISS returns L2 distance. text-embedding-3-small yields unit-norm
         # vectors, so ||a-b||² = 2 - 2·cos(θ)  ⇒  cos = 1 - L2²/2.
         # That's the true retrieval similarity; clamp for a clean 0–1 meter.
-        top_score = float(scored[0][1]) if scored else 2.0
-        confidence = max(0.0, min(1.0, 1.0 - (top_score ** 2) / 2.0))
+        confidence = self._confidence_from_scored(scored)
 
         # Build the *prompt* context only from docs that are plausibly relevant.
         # Below ~0.30 cosine similarity the doc is almost always off-topic, and
         # feeding it to the LLM triggers polite but unhelpful "here's what I
         # know" style answers. Dropping these docs lets the system prompt's
         # "ask a clarifying question" branch engage cleanly.
-        RELEVANCE_L2 = 1.18  # cos ≈ 0.30
-        relevant_docs = [d for d, s in scored if float(s) <= RELEVANCE_L2]
-        context = "\n\n".join(
-            f"[Source {i+1}] {doc.page_content}"
-            for i, doc in enumerate(relevant_docs)
-        ) or "(no relevant context retrieved)"
+        context = self._context_from_scored(scored)
 
         answer = (
             {
@@ -327,14 +348,7 @@ class LangChainRAG:
 
         return {
             "answer":           answer,
-            "source_documents": [
-                {
-                    "content":  doc.page_content,
-                    "metadata": doc.metadata,
-                    "score":    float(score),
-                }
-                for (doc, score) in scored
-            ],
+            "source_documents": self._serialize_scored_docs(scored),
             "confidence":      confidence,
             "condensed_query": standalone,
         }
@@ -366,13 +380,13 @@ class LangChainRAG:
 
     # ── Public API — async streaming ──────────────────────────────────────────
 
-    async def astream(
+    async def astream_response(
         self,
         question: str,
         session_id: str | None = None,
-    ) -> AsyncIterator[str]:
+    ) -> AsyncIterator[dict]:
         """
-        Async generator — yields text tokens as they arrive from the LLM.
+        Async generator — yields token events, then one final metadata event.
 
         Uses fully async retrieval (ainvoke) to avoid blocking the event loop,
         and formats the prompt directly to avoid lambda-closure bugs in LCEL.
@@ -399,15 +413,10 @@ class LangChainRAG:
         # Step 2: retrieve context docs. FAISS search is in-process and runs
         # in microseconds, so calling sync similarity_search_with_score from
         # async code is fine (no event-loop blocking of practical concern).
-        # Mirrors the relevance filter in chat() so the streaming path applies
-        # the same "clarify instead of fluff" behaviour on off-topic queries.
-        RELEVANCE_L2 = 1.18  # cos ≈ 0.30
+        # Mirrors chat() behaviour for confidence + off-topic context filtering.
         scored = self._similarity_search_with_score(standalone, k=4)
-        relevant_docs = [d for d, s in scored if float(s) <= RELEVANCE_L2]
-        context = "\n\n".join(
-            f"[Source {i + 1}] {doc.page_content}"
-            for i, doc in enumerate(relevant_docs)
-        ) or "(no relevant context retrieved)"
+        confidence = self._confidence_from_scored(scored)
+        context = self._context_from_scored(scored)
 
         # Step 3: format prompt with real values (no lambdas / closures)
         messages = _QA_PROMPT.format_messages(
@@ -421,9 +430,26 @@ class LangChainRAG:
         async for chunk in self._llm_stream.astream(messages):
             token = chunk.content
             full_answer += token
-            yield token
+            yield {"event": "token", "token": token}
 
         self._update_memory(history, question, full_answer)
+        yield {
+            "event": "final",
+            "answer": full_answer,
+            "source_documents": self._serialize_scored_docs(scored),
+            "confidence": confidence,
+            "condensed_query": standalone,
+        }
+
+    async def astream(
+        self,
+        question: str,
+        session_id: str | None = None,
+    ) -> AsyncIterator[str]:
+        """Backward-compatible token-only stream."""
+        async for event in self.astream_response(question, session_id=session_id):
+            if event.get("event") == "token":
+                yield event.get("token", "")
 
     # ── Utilities ─────────────────────────────────────────────────────────────
 

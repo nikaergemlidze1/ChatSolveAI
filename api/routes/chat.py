@@ -79,27 +79,50 @@ async def chat(payload: ChatRequest, request: Request):
 @limiter.limit("30/minute")
 async def chat_stream(payload: ChatRequest, request: Request):
     rag = _get_rag(request)
+    t0 = time.perf_counter()
     intent = tag_intent(payload.query)
 
     await db.ensure_session(payload.session_id)
     await db.append_message(payload.session_id, "user", payload.query)
 
-    full_answer: list[str] = []
-
     async def generate():
         # Opening metadata event — frontend can show intent/condensed query early
         yield f"data: {json.dumps({'event': 'meta', 'intent': intent})}\n\n"
 
-        async for token in rag.astream(payload.query, session_id=payload.session_id):
-            full_answer.append(token)
-            yield f"data: {json.dumps({'token': token})}\n\n"
+        async for event in rag.astream_response(payload.query, session_id=payload.session_id):
+            if event.get("event") == "token":
+                yield f"data: {json.dumps({'token': event.get('token', '')})}\n\n"
+                continue
 
-        answer = "".join(full_answer)
-        await db.append_message(payload.session_id, "assistant", answer)
-        await db.log_query(
-            payload.session_id, payload.query, answer, [],
-            intent=intent, confidence=0.0,
-        )
+            if event.get("event") == "final":
+                answer = event.get("answer", "")
+                sources = [
+                    s.get("content", "")
+                    for s in event.get("source_documents", [])
+                ]
+                confidence = float(event.get("confidence", 0.0))
+                latency_ms = int((time.perf_counter() - t0) * 1000)
+
+                await db.append_message(payload.session_id, "assistant", answer)
+                await db.log_query(
+                    payload.session_id, payload.query, answer, sources,
+                    intent=intent, confidence=confidence,
+                )
+
+                final_event = {
+                    'event': 'final',
+                    'session_id': payload.session_id,
+                    'query': payload.query,
+                    'answer': answer,
+                    'source_documents': event.get('source_documents', []),
+                    'confidence': confidence,
+                    'condensed_query': event.get('condensed_query', payload.query),
+                    'intent': intent,
+                    'latency_ms': latency_ms,
+                    'timestamp': datetime.now(timezone.utc).isoformat(),
+                }
+                yield f"data: {json.dumps(final_event)}\n\n"
+
         yield "data: [DONE]\n\n"
 
     return StreamingResponse(
@@ -108,7 +131,6 @@ async def chat_stream(payload: ChatRequest, request: Request):
         headers={
             "Cache-Control":               "no-cache",
             "X-Accel-Buffering":           "no",
-            "Access-Control-Allow-Origin": "*",
         },
     )
 
