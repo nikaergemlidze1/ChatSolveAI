@@ -1,5 +1,9 @@
 """
-ChatSolveAI — Streamlit frontend (v2.1) — Chat only.
+ChatSolveAI — Streamlit frontend (v3.0) — single page with sidebar nav.
+
+Replaces the previous multipage layout (App.py + pages/1_Admin_Dashboard.py).
+Streamlit's pages/ directory caused DOM remnants to persist across page swaps;
+folding both views into one script eliminates that class of bug entirely.
 """
 
 from __future__ import annotations
@@ -13,14 +17,16 @@ load_dotenv()
 # ══════════════════════════════════════════════
 # Config
 # ══════════════════════════════════════════════
-_SECRET_API_URL = _SECRET_API_KEY = None
+_SECRET_API_URL = _SECRET_API_KEY = _SECRET_ADMIN_PW = None
 try:
     _SECRET_API_URL = st.secrets.get("API_URL")
     _SECRET_API_KEY = st.secrets.get("API_KEY")
+    _SECRET_ADMIN_PW = st.secrets.get("ADMIN_PASSWORD")
 except: pass
 
 API_URL = (_SECRET_API_URL or os.getenv("API_URL") or "https://Nikollass-chatsolveai-api.hf.space").rstrip("/")
 API_KEY = _SECRET_API_KEY or os.getenv("API_KEY") or ""
+ADMIN_PASSWORD = _SECRET_ADMIN_PW or os.getenv("ADMIN_PASSWORD") or ""
 HEALTH_TIMEOUT_S = int(os.getenv("API_HEALTH_TIMEOUT","20"))
 HEALTH_RETRIES   = int(os.getenv("API_HEALTH_RETRIES","2"))
 USE_STREAMING    = os.getenv("USE_STREAMING","true").lower() not in {"0","false","no"}
@@ -28,24 +34,10 @@ USE_STREAMING    = os.getenv("USE_STREAMING","true").lower() not in {"0","false"
 def _api_headers(): return {"X-API-Key": API_KEY} if API_KEY else {}
 
 # ══════════════════════════════════════════════
-# Page setup (single set_page_config for the whole app)
+# Page setup
 # ══════════════════════════════════════════════
 st.set_page_config(page_title="ChatSolveAI", page_icon="🤖", layout="wide",
                    initial_sidebar_state="expanded")
-
-# ── Render‑id counter (for container key rotation) ─────────────────
-if "_app_render_id" not in st.session_state:
-    st.session_state._app_render_id = 0
-
-# ══════════════════════════════════════════════
-# Page isolation guard
-# ══════════════════════════════════════════════
-if st.session_state.get("_page") == "admin":
-    st.session_state._app_render_id += 1
-    st.session_state["_clear_admin"] = True
-    st.session_state["_page"] = "app"
-    st.rerun()
-st.session_state["_page"] = "app"
 
 # ══════════════════════════════════════════════
 # CSS
@@ -69,24 +61,8 @@ st.markdown("""<style>
 #MainMenu,footer{visibility:hidden}
 </style>""", unsafe_allow_html=True)
 
-# ── Hide any admin dashboard containers that may still be in the DOM ─
-st.markdown(
-    """
-    <style>
-    [class*="st-key-admin_main_"] { display: none !important; }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
-
-# Replace the old admin container with an empty one so its charts disappear.
-if st.session_state.get("_clear_admin"):
-    st.session_state.pop("_clear_admin")
-    if "_admin_render_id" in st.session_state:
-        st.container(key=f"admin_main_{st.session_state._admin_render_id}")
-
 # ══════════════════════════════════════════════
-# Session state helpers
+# Session state helpers (chat only)
 # ══════════════════════════════════════════════
 def _session_id_from_url():
     try: sid = st.query_params.get("sid")
@@ -130,9 +106,6 @@ def _init_state():
                 "pending_append_user":True,"history_loaded_for":None}.items():
         if k not in st.session_state: st.session_state[k] = v
     st.session_state.pop("followups",None)
-_init_state()
-_adopt_url_session()
-_sync_session_url()
 
 # ══════════════════════════════════════════════
 # API helpers
@@ -193,8 +166,14 @@ def call_feedback(q,a,rating):
         return r.ok
     except: return False
 
+@st.cache_data(ttl=30, show_spinner=False)
+def _fetch_admin(path):
+    r = requests.get(f"{API_URL}{path}", headers=_api_headers(), timeout=20)
+    r.raise_for_status()
+    return r.json()
+
 # ══════════════════════════════════════════════
-# Callbacks & render helpers
+# Chat callbacks & render helpers
 # ══════════════════════════════════════════════
 def _queue_query(q):
     if q: st.session_state.pending_query = q; st.session_state.pending_append_user = True
@@ -302,46 +281,52 @@ def _perform_full_reset():
             del st.session_state[k]
 
 # ══════════════════════════════════════════════
-# Sidebar – only on App page
+# Sidebar — view selector + per-view extras
 # ══════════════════════════════════════════════
-if st.session_state.get("_page") == "app":
+NAV_CHAT, NAV_ADMIN = "💬 Chat", "📊 Admin Dashboard"
+
+with st.sidebar:
+    view = st.radio("View", [NAV_CHAT, NAV_ADMIN], key="nav_view", label_visibility="collapsed")
+    st.divider()
+
+# ══════════════════════════════════════════════
+# Chat view
+# ══════════════════════════════════════════════
+def render_chat():
+    _init_state()
+    _adopt_url_session()
+    _sync_session_url()
+
     with st.sidebar:
-        st.image("https://img.icons8.com/fluency/96/chatbot.png",width=64)
+        st.image("https://img.icons8.com/fluency/96/chatbot.png", width=64)
         st.title("ChatSolveAI")
         st.caption("LangChain · FAISS · GPT‑3.5‑turbo\nMongoDB · FastAPI · Docker · HF Spaces")
         st.divider()
         healthy = api_health()
         if healthy:
-            st.success("API connected",icon="✅")
+            st.success("API connected", icon="✅")
         else:
-            st.error(f"API unreachable at {API_URL}",icon="🔴")
+            st.error(f"API unreachable at {API_URL}", icon="🔴")
         st.caption(f"Session: `{st.session_state.session_id[:8]}…`")
         st.divider()
-        if st.button("🗑 New chat",key="btn_new_chat",use_container_width=True):
+        if st.button("🗑 New chat", key="btn_new_chat", use_container_width=True):
             _perform_full_reset()
             st.rerun()
         if st.session_state.messages:
-            st.download_button("⬇️ Export chat (.md)",data=build_transcript_md(),
+            st.download_button("⬇️ Export chat (.md)", data=build_transcript_md(),
                                file_name=f"chatsolveai_{st.session_state.session_id[:8]}.md",
-                               mime="text/markdown",use_container_width=True)
-else:
-    st.sidebar.empty()
+                               mime="text/markdown", use_container_width=True)
 
-# ══════════════════════════════════════════════
-# Main chat UI (wrapped in a container)
-# ══════════════════════════════════════════════
-main_container = st.container(key=f"app_main_{st.session_state._app_render_id}")
-with main_container:
-    st.markdown('<div class="hero-title">💬 ChatSolveAI — Customer Support</div>',unsafe_allow_html=True)
-    st.markdown('<p class="hero-sub">LangChain RAG · GPT‑3.5‑turbo · MongoDB · FastAPI …</p>',unsafe_allow_html=True)
+    st.markdown('<div class="hero-title">💬 ChatSolveAI — Customer Support</div>', unsafe_allow_html=True)
+    st.markdown('<p class="hero-sub">LangChain RAG · GPT‑3.5‑turbo · MongoDB · FastAPI …</p>', unsafe_allow_html=True)
 
     if st.session_state.pending_query:
         if healthy:
             q = st.session_state.pending_query
-            append = st.session_state.get("pending_append_user",True)
+            append = st.session_state.get("pending_append_user", True)
             st.session_state.pending_query = None
             st.session_state.pending_append_user = True
-            if submit_query(q,append_user=append):
+            if submit_query(q, append_user=append):
                 st.rerun()
         else:
             st.warning("Backend cold‑starting … try again in ~30s.")
@@ -351,50 +336,51 @@ with main_container:
         st.markdown("**👋 Try one of these to get started:**")
         cols = st.columns(2)
         conv = st.session_state.conv_id
-        for i,(emoji,q) in enumerate(EXAMPLE_QUESTIONS):
-            with cols[i%2]:
-                st.markdown('<div class="chip-btn">',unsafe_allow_html=True)
-                st.button(f"{emoji}   {q}",key=f"chip_{conv}_{i}",use_container_width=True,on_click=_queue_query,args=(q,))
-                st.markdown('</div>',unsafe_allow_html=True)
+        for i, (emoji, q) in enumerate(EXAMPLE_QUESTIONS):
+            with cols[i % 2]:
+                st.markdown('<div class="chip-btn">', unsafe_allow_html=True)
+                st.button(f"{emoji}   {q}", key=f"chip_{conv}_{i}", use_container_width=True,
+                          on_click=_queue_query, args=(q,))
+                st.markdown('</div>', unsafe_allow_html=True)
     else:
         msgs = st.session_state.messages
-        last_idx = len(msgs)-1
+        last_idx = len(msgs) - 1
         conv_id = st.session_state.conv_id
         with st.container(height=900):
-            for idx,msg in enumerate(msgs):
-                avatar = USER_AVATAR if msg["role"]=="user" else ASSISTANT_AVATAR
-                with st.chat_message(msg["role"],avatar=avatar):
+            for idx, msg in enumerate(msgs):
+                avatar = USER_AVATAR if msg["role"] == "user" else ASSISTANT_AVATAR
+                with st.chat_message(msg["role"], avatar=avatar):
                     st.markdown(msg["content"])
-                    if msg["role"]=="assistant":
-                        render_meta(msg.get("meta",{}))
-                        render_sources(msg.get("sources",[]))
+                    if msg["role"] == "assistant":
+                        render_meta(msg.get("meta", {}))
+                        render_sources(msg.get("sources", []))
                         fb = f"fb_{conv_id}_{idx}"
                         if st.session_state.get(fb) is None:
-                            c1,c2,_ = st.columns([1,1,8])
+                            c1, c2, _ = st.columns([1, 1, 8])
                             with c1:
-                                if st.button("👍",key=f"up_{conv_id}_{idx}"):
-                                    _record_feedback(idx,"up"); st.rerun()
+                                if st.button("👍", key=f"up_{conv_id}_{idx}"):
+                                    _record_feedback(idx, "up"); st.rerun()
                             with c2:
-                                if st.button("👎",key=f"down_{conv_id}_{idx}"):
-                                    _record_feedback(idx,"down"); st.rerun()
+                                if st.button("👎", key=f"down_{conv_id}_{idx}"):
+                                    _record_feedback(idx, "down"); st.rerun()
                         else:
                             rating = st.session_state[fb]
-                            st.caption(f"You rated: {'👍' if rating=='up' else '👎'}")
-                            if rating=="down" and st.button("Regenerate",key=f"regen_{conv_id}_{idx}"):
+                            st.caption(f"You rated: {'👍' if rating == 'up' else '👎'}")
+                            if rating == "down" and st.button("Regenerate", key=f"regen_{conv_id}_{idx}"):
                                 _queue_regenerate(idx); del st.session_state[fb]; st.rerun()
         with st.container():
-            if msgs[-1]["role"]=="assistant":
+            if msgs[-1]["role"] == "assistant":
                 fu = msgs[-1].get("followups") or []
                 if fu:
-                    st.markdown('<div style="margin-top:14px;font-weight:600;color:#c9b8ff;">💡 Suggested follow‑ups</div>',unsafe_allow_html=True)
+                    st.markdown('<div style="margin-top:14px;font-weight:600;color:#c9b8ff;">💡 Suggested follow‑ups</div>', unsafe_allow_html=True)
                     cols = st.columns(len(fu))
                     clicked = None
-                    for i,q in enumerate(fu):
+                    for i, q in enumerate(fu):
                         with cols[i]:
-                            st.markdown('<div class="chip-btn">',unsafe_allow_html=True)
-                            if st.button(q,key=f"fu_{conv_id}_{last_idx}_{i}",use_container_width=True):
+                            st.markdown('<div class="chip-btn">', unsafe_allow_html=True)
+                            if st.button(q, key=f"fu_{conv_id}_{last_idx}_{i}", use_container_width=True):
                                 clicked = q
-                            st.markdown('</div>',unsafe_allow_html=True)
+                            st.markdown('</div>', unsafe_allow_html=True)
                     if clicked:
                         st.session_state.pending_query = clicked
                         st.rerun()
@@ -405,3 +391,73 @@ with main_container:
             st.stop()
         _queue_query(prompt)
         st.rerun()
+
+# ══════════════════════════════════════════════
+# Admin view
+# ══════════════════════════════════════════════
+def render_admin():
+    # Optional password gate
+    if ADMIN_PASSWORD:
+        if not st.session_state.get("admin_ok"):
+            with st.form("admin_login"):
+                pw = st.text_input("Admin password", type="password")
+                if st.form_submit_button("Sign in") and pw == ADMIN_PASSWORD:
+                    st.session_state["admin_ok"] = True
+                    st.rerun()
+                if pw and pw != ADMIN_PASSWORD:
+                    st.error("Invalid password.")
+            st.stop()
+        with st.sidebar:
+            if st.button("Sign out", key="admin_signout"):
+                st.session_state.pop("admin_ok", None)
+                st.rerun()
+
+    try:
+        summary    = _fetch_admin("/analytics")
+        timeseries = _fetch_admin("/analytics/timeseries?days=14")
+        intents    = _fetch_admin("/analytics/intents")
+        latency    = _fetch_admin("/analytics/latency")
+        feedback   = _fetch_admin("/analytics/feedback")
+        sessions   = _fetch_admin("/sessions?limit=20")
+    except Exception:
+        st.warning("Backend unreachable – analytics unavailable.")
+        st.stop()
+
+    st.title("ChatSolveAI Admin Dashboard")
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Sessions", summary.get("total_sessions", 0))
+    c2.metric("Queries", summary.get("total_queries", 0))
+    c3.metric("Today", summary.get("queries_today", 0))
+    c4.metric("Avg Session Length", summary.get("avg_session_length", 0))
+    f1, f2, f3 = st.columns(3)
+    f1.metric("P95 Latency", f"{latency.get('p95', 0)} ms")
+    f2.metric("👍 Upvotes", feedback.get("up", 0))
+    f3.metric("👎 Downvotes", feedback.get("down", 0))
+    st.divider()
+    left, right = st.columns(2)
+    with left:
+        st.subheader("Daily Queries")
+        if timeseries: st.bar_chart(timeseries, x="date", y="count")
+        else: st.info("No data yet.")
+    with right:
+        st.subheader("Intent Distribution")
+        if intents: st.bar_chart(intents, x="intent", y="count")
+        else: st.info("No data yet.")
+    st.divider()
+    tab1, tab2 = st.tabs(["Top Questions", "Recent Sessions"])
+    with tab1:
+        top = summary.get("top_questions", [])
+        if top: st.dataframe(top, use_container_width=True, hide_index=True)
+        else: st.info("No questions logged.")
+    with tab2:
+        if sessions: st.dataframe(sessions, use_container_width=True, hide_index=True)
+        else: st.info("No sessions.")
+    st.caption(f"Last refreshed: {datetime.utcnow():%Y-%m-%d %H:%M UTC}")
+
+# ══════════════════════════════════════════════
+# Dispatch
+# ══════════════════════════════════════════════
+if view == NAV_CHAT:
+    render_chat()
+else:
+    render_admin()

@@ -218,6 +218,37 @@ class LangChainRAG:
         self._sessions[sid] = []
         return self._sessions[sid]
 
+    # Pronouns / phrases that indicate a follow-up needs the chat history to
+    # be interpretable. If none appear in a short query, we can skip the
+    # condense LLM call entirely (saves ~400-800ms per turn).
+    _FOLLOWUP_TOKENS = frozenset({
+        "it", "this", "that", "these", "those",
+        "they", "them", "their", "theirs",
+        "he", "him", "his", "she", "her", "hers",
+        "we", "us", "our", "ours",
+        "the same", "above", "previous", "earlier", "again",
+        "also", "too",
+    })
+
+    @classmethod
+    def _looks_standalone(cls, question: str) -> bool:
+        """Heuristic: True if question carries enough context on its own."""
+        q = question.strip().lower()
+        if not q:
+            return True
+        # Long queries usually carry their own context already.
+        if len(q.split()) > 18:
+            return True
+        # Bare reference words trigger condensing.
+        words = set(q.replace("?", " ").replace(".", " ").split())
+        if words & cls._FOLLOWUP_TOKENS:
+            return False
+        # Multi-word follow-up phrases ("the same", "above", etc.).
+        for phrase in ("the same", "as before", "like before"):
+            if phrase in q:
+                return False
+        return True
+
     def _standalone_question(
         self,
         question: str,
@@ -225,6 +256,9 @@ class LangChainRAG:
     ) -> str:
         """Rephrase *question* into a standalone query if history exists."""
         if not history:
+            return question
+        # Skip the condense LLM call when the query is clearly self-contained.
+        if self._looks_standalone(question):
             return question
         return self._condense_chain.invoke({
             "question":     question,
@@ -401,8 +435,10 @@ class LangChainRAG:
         """
         history = self._history_for(session_id)
 
-        # Step 1: condense follow-up question using chat history (async)
-        if history:
+        # Step 1: condense follow-up question using chat history (async).
+        # Skip the LLM round-trip when the query is clearly self-contained —
+        # this is the single biggest latency saver per turn.
+        if history and not self._looks_standalone(question):
             standalone = await self._condense_chain.ainvoke({
                 "question":     question,
                 "chat_history": history,
