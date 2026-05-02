@@ -297,25 +297,28 @@ def render_chat():
     _adopt_url_session()
     _sync_session_url()
 
+    # Keyed sidebar container — lets CSS-hide this whole subtree when
+    # the user toggles to admin view.
     with st.sidebar:
-        st.image("https://img.icons8.com/fluency/96/chatbot.png", width=64)
-        st.title("ChatSolveAI")
-        st.caption("LangChain · FAISS · GPT‑3.5‑turbo\nMongoDB · FastAPI · Docker · HF Spaces")
-        st.divider()
-        healthy = api_health()
-        if healthy:
-            st.success("API connected", icon="✅")
-        else:
-            st.error(f"API unreachable at {API_URL}", icon="🔴")
-        st.caption(f"Session: `{st.session_state.session_id[:8]}…`")
-        st.divider()
-        if st.button("🗑 New chat", key="btn_new_chat", use_container_width=True):
-            _perform_full_reset()
-            st.rerun()
-        if st.session_state.messages:
-            st.download_button("⬇️ Export chat (.md)", data=build_transcript_md(),
-                               file_name=f"chatsolveai_{st.session_state.session_id[:8]}.md",
-                               mime="text/markdown", use_container_width=True)
+        with st.container(key="view_chat_sidebar"):
+            st.image("https://img.icons8.com/fluency/96/chatbot.png", width=64)
+            st.title("ChatSolveAI")
+            st.caption("LangChain · FAISS · GPT‑3.5‑turbo\nMongoDB · FastAPI · Docker · HF Spaces")
+            st.divider()
+            healthy = api_health()
+            if healthy:
+                st.success("API connected", icon="✅")
+            else:
+                st.error(f"API unreachable at {API_URL}", icon="🔴")
+            st.caption(f"Session: `{st.session_state.session_id[:8]}…`")
+            st.divider()
+            if st.button("🗑 New chat", key="btn_new_chat", use_container_width=True):
+                _perform_full_reset()
+                st.rerun()
+            if st.session_state.messages:
+                st.download_button("⬇️ Export chat (.md)", data=build_transcript_md(),
+                                   file_name=f"chatsolveai_{st.session_state.session_id[:8]}.md",
+                                   mime="text/markdown", use_container_width=True)
 
     st.markdown('<div class="hero-title">💬 ChatSolveAI — Customer Support</div>', unsafe_allow_html=True)
     st.markdown('<p class="hero-sub">LangChain RAG · GPT‑3.5‑turbo · MongoDB · FastAPI …</p>', unsafe_allow_html=True)
@@ -408,9 +411,10 @@ def render_admin():
                     st.error("Invalid password.")
             st.stop()
         with st.sidebar:
-            if st.button("Sign out", key="admin_signout"):
-                st.session_state.pop("admin_ok", None)
-                st.rerun()
+            with st.container(key="view_admin_sidebar"):
+                if st.button("Sign out", key="admin_signout"):
+                    st.session_state.pop("admin_ok", None)
+                    st.rerun()
 
     try:
         summary    = _fetch_admin("/analytics")
@@ -456,8 +460,31 @@ def render_admin():
 
 # ══════════════════════════════════════════════
 # Dispatch
+# ──────────────────────────────────────────────
+# Each view renders inside its own keyed container, AND we hide
+# everything belonging to the inactive view via CSS. This is
+# belt-and-suspenders isolation: Streamlit's element-reconciliation
+# can otherwise keep stale DOM nodes alive when toggling between
+# views (different content at the same script position → React keeps
+# the old subtree mounted instead of swapping).
+#
+# Also: st.chat_input docks to the page body, NOT inside containers,
+# so we hide it explicitly when on the admin view.
 # ══════════════════════════════════════════════
+_INACTIVE = "admin" if view == NAV_CHAT else "chat"
+_hide_css = f"""
+<style>
+[class*="st-key-view_{_INACTIVE}_"] {{ display: none !important; }}
+"""
+if view == NAV_ADMIN:
+    # Chat input docks globally — must be hidden by its testid, not key.
+    _hide_css += "[data-testid='stChatInput'] { display: none !important; }\n"
+_hide_css += "</style>"
+st.markdown(_hide_css, unsafe_allow_html=True)
+
 if view == NAV_CHAT:
-    render_chat()
+    with st.container(key="view_chat_main"):
+        render_chat()
 else:
-    render_admin()
+    with st.container(key="view_admin_main"):
+        render_admin()
