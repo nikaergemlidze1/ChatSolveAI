@@ -527,11 +527,18 @@ chat_main_slot     = st.empty()
 admin_main_slot    = st.empty()
 
 if view == NAV_CHAT:
-    # Clear the inactive view's placeholders explicitly.
+    # Reclaim each inactive slot with a fresh empty container — calling
+    # only .empty() doesn't actually drop the prior run's DOM (same
+    # Streamlit reconciliation quirk that bit us with the drill-down
+    # buttons). Writing a new container to the slot forces replacement.
     admin_sidebar_slot.empty()
     admin_main_slot.empty()
+    with admin_sidebar_slot.container(): pass
+    with admin_main_slot.container(): pass
     render_chat(chat_sidebar_slot.container(), chat_main_slot.container())
 else:
     chat_sidebar_slot.empty()
     chat_main_slot.empty()
+    with chat_sidebar_slot.container(): pass
+    with chat_main_slot.container(): pass
     render_admin(admin_sidebar_slot.container(), admin_main_slot.container())
