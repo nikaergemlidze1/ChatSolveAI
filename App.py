@@ -507,12 +507,21 @@ def render_admin(sidebar_slot, main_slot):
 # ══════════════════════════════════════════════
 # Dispatch
 # ──────────────────────────────────────────────
-# Each view writes into a container whose key changes with the view name
-# (sb_chat / sb_admin / main_chat / main_admin). On view-toggle, a CSS
-# rule hides the *other* view's container as a belt-and-suspenders guard
-# in case Streamlit reuses the prior subtree.
-# st.chat_input docks to the body, so we hide it via testid in admin view.
+# Strategy: ALWAYS create both views' containers with stable keys, but
+# only fill the active one. Stable keys mean the container element
+# identity is preserved across reruns; when the inactive container has
+# no children in the new run, Streamlit reconciles its prior children
+# away (old charts / tabs / etc. are removed).
+#
+# CSS hide on the inactive container is a visual fallback. st.chat_input
+# docks to the body so we also hide it via testid when on admin.
 # ══════════════════════════════════════════════
+with st.sidebar:
+    chat_sb_ctx  = st.container(key="sb_chat")
+    admin_sb_ctx = st.container(key="sb_admin")
+chat_main_ctx  = st.container(key="main_chat")
+admin_main_ctx = st.container(key="main_admin")
+
 _inactive = "admin" if view == NAV_CHAT else "chat"
 _extra = "[data-testid='stChatInput']{display:none !important;}" if view == NAV_ADMIN else ""
 st.markdown(
@@ -524,17 +533,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# Each view writes into a container whose KEY changes with the view name.
-# Different key on view-toggle = different container identity = Streamlit
-# drops the prior view's subtree instead of merging into it. (st.empty()
-# placeholders + .empty() calls were not enough — inactive view's DOM
-# kept leaking through.)
-view_id = "chat" if view == NAV_CHAT else "admin"
-with st.sidebar:
-    sidebar_ctx = st.container(key=f"sb_{view_id}")
-main_ctx = st.container(key=f"main_{view_id}")
-
 if view == NAV_CHAT:
-    render_chat(sidebar_ctx, main_ctx)
+    render_chat(chat_sb_ctx, chat_main_ctx)
 else:
-    render_admin(sidebar_ctx, main_ctx)
+    render_admin(admin_sb_ctx, admin_main_ctx)
