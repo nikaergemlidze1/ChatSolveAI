@@ -43,6 +43,13 @@ from .cache import TTLLRUCache
 from .config import OPENAI_API_KEY, EMBED_MODEL, CHAT_MODEL
 
 
+# Top retrieval similarity above which we return the source text verbatim
+# without calling the LLM. Saves ~600-1000ms per turn and guarantees the
+# response comes straight from the knowledge base (no paraphrasing).
+# Tunable via env var so we don't need a redeploy to adjust.
+_DIRECT_ANSWER_THRESHOLD = float(os.getenv("RAG_DIRECT_ANSWER_THRESHOLD", "0.65"))
+
+
 # ── Prompts ───────────────────────────────────────────────────────────────────
 
 # Rephrases the follow-up question into a standalone query using chat history
@@ -360,6 +367,19 @@ class LangChainRAG:
         # That's the true retrieval similarity; clamp for a clean 0–1 meter.
         confidence = self._confidence_from_scored(scored)
 
+        # Direct-answer fast path: if top match is highly similar, return the
+        # source text verbatim. Skips a ~600-1000ms LLM call and guarantees
+        # the answer comes straight from the knowledge base.
+        if scored and confidence >= _DIRECT_ANSWER_THRESHOLD:
+            answer = scored[0][0].page_content
+            self._update_memory(history, question, answer)
+            return {
+                "answer":           answer,
+                "source_documents": self._serialize_scored_docs(scored),
+                "confidence":      confidence,
+                "condensed_query": standalone,
+            }
+
         # Build the *prompt* context only from docs that are plausibly relevant.
         # Below ~0.30 cosine similarity the doc is almost always off-topic, and
         # feeding it to the LLM triggers polite but unhelpful "here's what I
@@ -452,6 +472,21 @@ class LangChainRAG:
         # Mirrors chat() behaviour for confidence + off-topic context filtering.
         scored = self._similarity_search_with_score(standalone, k=4)
         confidence = self._confidence_from_scored(scored)
+
+        # Direct-answer fast path: high-similarity hit → emit verbatim, skip LLM.
+        if scored and confidence >= _DIRECT_ANSWER_THRESHOLD:
+            answer = scored[0][0].page_content
+            yield {"event": "token", "token": answer}
+            self._update_memory(history, question, answer)
+            yield {
+                "event": "final",
+                "answer": answer,
+                "source_documents": self._serialize_scored_docs(scored),
+                "confidence": confidence,
+                "condensed_query": standalone,
+            }
+            return
+
         context = self._context_from_scored(scored)
 
         # Step 3: format prompt with real values (no lambdas / closures)

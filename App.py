@@ -99,6 +99,31 @@ EXAMPLE_QUESTIONS = [
     ("💳","How do I get a refund?"), ("🚫","How do I cancel my subscription?")
 ]
 
+# Topical groupings for the start-page quick-question UI.
+# Each category expands into 3 representative questions on click.
+TOPIC_CATEGORIES = [
+    ("🔐", "Account", [
+        "How do I reset my password?",
+        "How do I unlock my account?",
+        "How do I enable two-factor authentication?",
+    ]),
+    ("📦", "Orders", [
+        "Where is my order?",
+        "How long does delivery take?",
+        "Can I cancel my order after it has shipped?",
+    ]),
+    ("💳", "Refunds", [
+        "How do I get a refund?",
+        "What is your refund policy?",
+        "How long does a refund take to process?",
+    ]),
+    ("🚫", "Subscription", [
+        "How do I cancel my subscription?",
+        "How do I update my payment method?",
+        "Where can I view my billing history?",
+    ]),
+]
+
 def _init_state():
     url_id = _session_id_from_url()
     for k,v in {"session_id":url_id or str(uuid.uuid4()),"conv_id":str(uuid.uuid4())[:8],
@@ -254,9 +279,10 @@ def submit_query(query, append_user=True):
         "intent":result.get("intent","general"),"confidence":result.get("confidence",0),
         "latency_ms":result.get("latency_ms",0),"condensed_query":result.get("condensed_query",query)
     }
+    # Follow-up suggestions removed from UI — skip the /suggest call to save
+    # an LLM round-trip per turn.
     st.session_state.messages.append({
         "role":"assistant","content":answer,"sources":sources,"meta":meta,
-        "followups":call_suggest(answer)
     })
     st.session_state.last_sources = sources
     st.session_state.last_meta = meta
@@ -275,6 +301,7 @@ def _perform_full_reset():
     st.session_state["pending_append_user"] = True
     st.session_state["history_loaded_for"] = None
     st.session_state.pop("followups",None)
+    st.session_state.pop("selected_topic",None)
     _sync_session_url()
     for k in list(st.session_state.keys()):
         if isinstance(k,str) and k.startswith(("fb_","up_","down_","fu_","chip_")):
@@ -334,20 +361,41 @@ def render_chat(sidebar_slot, main_slot):
                 st.session_state.pending_query = None
 
         if not st.session_state.messages:
-            st.markdown("**👋 Try one of these to get started:**")
-            cols = st.columns(2)
             conv = st.session_state.conv_id
-            for i, (emoji, q) in enumerate(EXAMPLE_QUESTIONS):
-                with cols[i % 2]:
+            selected_topic = st.session_state.get("selected_topic")
+
+            if selected_topic is None:
+                # Top-level: show 4 topical category cards.
+                st.markdown("**👋 What do you need help with?**")
+                cols = st.columns(2)
+                for i, (emoji, name, _qs) in enumerate(TOPIC_CATEGORIES):
+                    with cols[i % 2]:
+                        st.markdown('<div class="chip-btn">', unsafe_allow_html=True)
+                        if st.button(f"{emoji}   {name}", key=f"topic_{conv}_{i}",
+                                     use_container_width=True):
+                            st.session_state["selected_topic"] = i
+                            st.rerun()
+                        st.markdown('</div>', unsafe_allow_html=True)
+            else:
+                # Drill-down: show 3 questions for selected category + back button.
+                emoji, name, questions = TOPIC_CATEGORIES[selected_topic]
+                head_cols = st.columns([1, 6])
+                with head_cols[0]:
+                    if st.button("← Back", key=f"topic_back_{conv}"):
+                        st.session_state.pop("selected_topic", None)
+                        st.rerun()
+                with head_cols[1]:
+                    st.markdown(f"**{emoji} {name}** — pick a question:")
+                for i, q in enumerate(questions):
                     st.markdown('<div class="chip-btn">', unsafe_allow_html=True)
-                    st.button(f"{emoji}   {q}", key=f"chip_{conv}_{i}", use_container_width=True,
+                    st.button(q, key=f"chip_{conv}_{selected_topic}_{i}",
+                              use_container_width=True,
                               on_click=_queue_query, args=(q,))
                     st.markdown('</div>', unsafe_allow_html=True)
         else:
             msgs = st.session_state.messages
-            last_idx = len(msgs) - 1
             conv_id = st.session_state.conv_id
-            with st.container(height=900):
+            with st.container(height=520):
                 for idx, msg in enumerate(msgs):
                     avatar = USER_AVATAR if msg["role"] == "user" else ASSISTANT_AVATAR
                     with st.chat_message(msg["role"], avatar=avatar):
@@ -369,22 +417,6 @@ def render_chat(sidebar_slot, main_slot):
                                 st.caption(f"You rated: {'👍' if rating == 'up' else '👎'}")
                                 if rating == "down" and st.button("Regenerate", key=f"regen_{conv_id}_{idx}"):
                                     _queue_regenerate(idx); del st.session_state[fb]; st.rerun()
-            with st.container():
-                if msgs[-1]["role"] == "assistant":
-                    fu = msgs[-1].get("followups") or []
-                    if fu:
-                        st.markdown('<div style="margin-top:14px;font-weight:600;color:#c9b8ff;">💡 Suggested follow‑ups</div>', unsafe_allow_html=True)
-                        cols = st.columns(len(fu))
-                        clicked = None
-                        for i, q in enumerate(fu):
-                            with cols[i]:
-                                st.markdown('<div class="chip-btn">', unsafe_allow_html=True)
-                                if st.button(q, key=f"fu_{conv_id}_{last_idx}_{i}", use_container_width=True):
-                                    clicked = q
-                                st.markdown('</div>', unsafe_allow_html=True)
-                        if clicked:
-                            st.session_state.pending_query = clicked
-                            st.rerun()
 
         if prompt := st.chat_input("Ask about orders, billing, account, or technical issues…"):
             if not healthy:
