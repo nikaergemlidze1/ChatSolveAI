@@ -304,7 +304,7 @@ def _perform_full_reset():
     st.session_state.pop("selected_topic",None)
     _sync_session_url()
     for k in list(st.session_state.keys()):
-        if isinstance(k,str) and k.startswith(("fb_","up_","down_","fu_","chip_")):
+        if isinstance(k,str) and k.startswith(("fb_","up_","down_","fu_","chip_","topic_")):
             del st.session_state[k]
 
 # ══════════════════════════════════════════════
@@ -360,39 +360,51 @@ def render_chat(sidebar_slot, main_slot):
                 st.warning("Backend cold‑starting … try again in ~30s.")
                 st.session_state.pending_query = None
 
+        # Dedicated placeholder for the start-page area (cards or drill-down).
+        # We always instantiate this slot at the same script position, then
+        # explicitly call .empty() on it BEFORE writing the new content. This
+        # is the only reliable way I've found to make Streamlit drop the
+        # previous run's buttons when the conditional branch changes
+        # (top-level ↔ drill-down ↔ chat-history).
+        startpage_slot = st.empty()
         if not st.session_state.messages:
             conv = st.session_state.conv_id
             selected_topic = st.session_state.get("selected_topic")
+            # Wipe the slot first; container() below repopulates it.
+            startpage_slot.empty()
 
             if selected_topic is None:
                 # Top-level: show 4 topical category cards.
-                st.markdown("**👋 What do you need help with?**")
-                cols = st.columns(2)
-                for i, (emoji, name, _qs) in enumerate(TOPIC_CATEGORIES):
-                    with cols[i % 2]:
-                        st.markdown('<div class="chip-btn">', unsafe_allow_html=True)
-                        if st.button(f"{emoji}   {name}", key=f"topic_{conv}_{i}",
-                                     use_container_width=True):
-                            st.session_state["selected_topic"] = i
-                            st.rerun()
-                        st.markdown('</div>', unsafe_allow_html=True)
+                with startpage_slot.container():
+                    st.markdown("**👋 What do you need help with?**")
+                    cols = st.columns(2)
+                    for i, (emoji, name, _qs) in enumerate(TOPIC_CATEGORIES):
+                        with cols[i % 2]:
+                            st.markdown('<div class="chip-btn">', unsafe_allow_html=True)
+                            if st.button(f"{emoji}   {name}", key=f"topic_{conv}_{i}",
+                                         use_container_width=True):
+                                st.session_state["selected_topic"] = i
+                                st.rerun()
+                            st.markdown('</div>', unsafe_allow_html=True)
             else:
                 # Drill-down: show 3 questions for selected category + back button.
                 emoji, name, questions = TOPIC_CATEGORIES[selected_topic]
-                head_cols = st.columns([1, 6])
-                with head_cols[0]:
-                    if st.button("← Back", key=f"topic_back_{conv}"):
-                        st.session_state.pop("selected_topic", None)
-                        st.rerun()
-                with head_cols[1]:
-                    st.markdown(f"**{emoji} {name}** — pick a question:")
-                for i, q in enumerate(questions):
-                    st.markdown('<div class="chip-btn">', unsafe_allow_html=True)
-                    st.button(q, key=f"chip_{conv}_{selected_topic}_{i}",
-                              use_container_width=True,
-                              on_click=_queue_query, args=(q,))
-                    st.markdown('</div>', unsafe_allow_html=True)
+                with startpage_slot.container():
+                    head_cols = st.columns([1, 6])
+                    with head_cols[0]:
+                        if st.button("← Back", key=f"topic_back_{conv}"):
+                            st.session_state.pop("selected_topic", None)
+                            st.rerun()
+                    with head_cols[1]:
+                        st.markdown(f"**{emoji} {name}** — pick a question:")
+                    for i, q in enumerate(questions):
+                        st.markdown('<div class="chip-btn">', unsafe_allow_html=True)
+                        st.button(q, key=f"chip_{conv}_{selected_topic}_{i}",
+                                  use_container_width=True,
+                                  on_click=_queue_query, args=(q,))
+                        st.markdown('</div>', unsafe_allow_html=True)
         else:
+            startpage_slot.empty()  # No start-page on chat-history view.
             msgs = st.session_state.messages
             conv_id = st.session_state.conv_id
             with st.container(height=520):
