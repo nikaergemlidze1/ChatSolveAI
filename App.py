@@ -302,6 +302,10 @@ def _perform_full_reset():
     st.session_state["history_loaded_for"] = None
     st.session_state.pop("followups",None)
     st.session_state.pop("selected_topic",None)
+    # Bump render-id so the main container gets a fresh key — forces
+    # Streamlit to drop any stale drill-down button DOM from the previous
+    # topic. Without this, old "How do I …" buttons linger after reset.
+    st.session_state["_render_id"] = st.session_state.get("_render_id", 0) + 1
     _sync_session_url()
     for k in list(st.session_state.keys()):
         if isinstance(k,str) and k.startswith(("fb_","up_","down_","fu_","chip_")):
@@ -514,14 +518,19 @@ if view == NAV_ADMIN:
 _hide_css += "</style>"
 st.markdown(_hide_css, unsafe_allow_html=True)
 
+# Render-id rotates on "New chat" / session reset so the chat container
+# gets a fresh key — Streamlit otherwise keeps stale drill-down buttons
+# (from the previous topic) alive in the DOM via element reuse.
+_rid = st.session_state.setdefault("_render_id", 0)
+
 # Pre-create both sidebar slots (in fixed order) so Streamlit replaces
 # the inactive one with empty content on every rerun.
 with st.sidebar:
-    chat_sidebar_slot = st.container(key="view_chat_sidebar")
+    chat_sidebar_slot = st.container(key=f"view_chat_sidebar_{_rid}")
     admin_sidebar_slot = st.container(key="view_admin_sidebar")
 
 # Pre-create both main slots in the body for the same reason.
-chat_main_slot = st.container(key="view_chat_main")
+chat_main_slot = st.container(key=f"view_chat_main_{_rid}")
 admin_main_slot = st.container(key="view_admin_main")
 
 if view == NAV_CHAT:
