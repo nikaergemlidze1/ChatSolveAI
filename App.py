@@ -164,12 +164,12 @@ a:hover{color:var(--accent)}
 .drill-section h3::before{content:'✦';color:var(--accent);font-size:.9em;text-shadow:0 0 12px rgba(79,139,249,.55);flex-shrink:0;display:inline-block}
 @keyframes sectionHeaderFade{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
 .chip-btn{opacity:0;transform-origin:top center;animation:slideUpFade .55s cubic-bezier(.34,1.56,.64,1) backwards;animation-delay:.07s}
-.chip-btn:nth-of-type(1){animation-delay:.07s}
-.chip-btn:nth-of-type(2){animation-delay:.14s}
-.chip-btn:nth-of-type(3){animation-delay:.21s}
-.chip-btn:nth-of-type(4){animation-delay:.28s}
-.chip-btn:nth-of-type(5){animation-delay:.35s}
-.chip-btn:nth-of-type(6){animation-delay:.42s}
+.chip-btn:nth-of-type(1){animation-delay:.10s;animation-duration:.50s}
+.chip-btn:nth-of-type(2){animation-delay:.18s;animation-duration:.45s}
+.chip-btn:nth-of-type(3){animation-delay:.24s;animation-duration:.55s}
+.chip-btn:nth-of-type(4){animation-delay:.32s;animation-duration:.40s}
+.chip-btn:nth-of-type(5){animation-delay:.38s;animation-duration:.50s}
+.chip-btn:nth-of-type(6){animation-delay:.44s;animation-duration:.45s}
 @keyframes slideUpFade{from{opacity:0;filter:blur(8px);transform:perspective(1000px) rotateX(-30deg) translateY(20px) scale(.95)}to{opacity:1;filter:blur(0);transform:perspective(1000px) rotateX(0deg) translateY(0) scale(1)}}
 [data-testid='stChatMessage']{border-radius:14px!important;padding:12px 14px!important;margin-bottom:10px!important;box-shadow:0 4px 18px rgba(0,0,0,.25);transition:box-shadow .2s ease,transform .2s ease}
 [data-testid='stChatMessage']:hover{box-shadow:0 6px 22px rgba(0,0,0,.32)}
