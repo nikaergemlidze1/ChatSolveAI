@@ -117,8 +117,14 @@ body{font-weight:400}
 @keyframes chipFadeIn{from{opacity:0;transform:translateY(10px) scale(.98)}to{opacity:1;transform:translateY(0) scale(1)}}
 [data-testid='stChatMessage']{border-radius:14px!important;padding:12px 14px!important;margin-bottom:10px!important;box-shadow:0 4px 18px rgba(0,0,0,.25);transition:box-shadow .2s ease,transform .2s ease}
 [data-testid='stChatMessage']:hover{box-shadow:0 6px 22px rgba(0,0,0,.32)}
-[class*='st-key-chatmsg-user'] [data-testid='stChatMessage']{background:rgba(79,139,249,.08)!important;border:1px solid rgba(79,139,249,.18)!important;border-left:3px solid #4F8BF9!important;animation:bubbleInRight .35s cubic-bezier(.16,1,.3,1) both}
-[class*='st-key-chatmsg-asst'] [data-testid='stChatMessage']{background:rgba(255,255,255,.025)!important;border:1px solid rgba(255,255,255,.06)!important;border-left:3px solid rgba(255,255,255,.12)!important;animation:bubbleInLeft .35s cubic-bezier(.16,1,.3,1) both}
+[class*='st-key-chatmsg-user'] [data-testid='stChatMessage']{background:rgba(79,139,249,.10)!important;border:1px solid rgba(79,139,249,.22)!important;border-left:3px solid #4F8BF9!important;backdrop-filter:blur(10px) saturate(140%)!important;-webkit-backdrop-filter:blur(10px) saturate(140%)!important;animation:bubbleInRight .35s cubic-bezier(.16,1,.3,1) both}
+[class*='st-key-chatmsg-asst'] [data-testid='stChatMessage']{background:rgba(20,24,32,.45)!important;border:1px solid rgba(255,255,255,.08)!important;border-left:3px solid rgba(255,255,255,.14)!important;backdrop-filter:blur(10px) saturate(140%)!important;-webkit-backdrop-filter:blur(10px) saturate(140%)!important;animation:bubbleInLeft .35s cubic-bezier(.16,1,.3,1) both}
+[data-testid='stAppViewContainer']{position:relative;isolation:isolate;background:#0E1117}
+[data-testid='stAppViewContainer']::before{content:'';position:fixed;inset:0;z-index:-1;pointer-events:none;background:radial-gradient(circle at 18% 20%,rgba(79,139,249,.10) 0%,transparent 45%),radial-gradient(circle at 82% 25%,rgba(142,107,255,.08) 0%,transparent 50%),radial-gradient(circle at 30% 85%,rgba(30,41,59,.55) 0%,transparent 55%),radial-gradient(circle at 75% 75%,rgba(79,139,249,.06) 0%,transparent 50%),linear-gradient(180deg,#0E1117 0%,#161A23 60%,#1E293B 100%);background-size:220% 220%,220% 220%,220% 220%,220% 220%,100% 100%;background-position:0% 0%,100% 0%,0% 100%,100% 100%,0 0;animation:meshFlow 28s ease-in-out infinite}
+@keyframes meshFlow{0%,100%{background-position:0% 0%,100% 0%,0% 100%,100% 100%,0 0}50%{background-position:100% 50%,0% 50%,100% 0%,0% 100%,0 0}}
+[data-testid='stSidebar']{background:rgba(20,24,32,.65)!important;backdrop-filter:blur(14px) saturate(140%);-webkit-backdrop-filter:blur(14px) saturate(140%);border-right:1px solid rgba(255,255,255,.06)}
+[data-testid='stSidebar'] > div{background:transparent!important}
+@media (max-width: 768px){[data-testid='stAppViewContainer']::before{animation:none}[class*='st-key-chatmsg-user'] [data-testid='stChatMessage'],[class*='st-key-chatmsg-asst'] [data-testid='stChatMessage']{backdrop-filter:blur(6px) saturate(120%)!important;-webkit-backdrop-filter:blur(6px) saturate(120%)!important}[data-testid='stSidebar']{backdrop-filter:blur(8px) saturate(120%);-webkit-backdrop-filter:blur(8px) saturate(120%)}}
 @keyframes bubbleInRight{from{opacity:0;transform:translateX(14px) translateY(8px)}to{opacity:1;transform:translateX(0) translateY(0)}}
 @keyframes bubbleInLeft{from{opacity:0;transform:translateX(-14px) translateY(8px)}to{opacity:1;transform:translateX(0) translateY(0)}}
 .typing-dots{display:inline-flex;gap:5px;padding:6px 2px;align-items:center}
@@ -134,7 +140,7 @@ body{font-weight:400}
 @keyframes pageEntryFade{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
 .sidebar-entry [data-testid='stSidebar']{animation:sidebarSlide .5s cubic-bezier(.16,1,.3,1) both}
 @keyframes sidebarSlide{from{transform:translateX(-30px);opacity:0}to{transform:translateX(0);opacity:1}}
-@media (prefers-reduced-motion: reduce){.drill-section,.chip-btn,[data-testid='stChatMessage'],[class*='st-key-chatmsg-user'] [data-testid='stChatMessage'],[class*='st-key-chatmsg-asst'] [data-testid='stChatMessage'],.typing-dots span,.pill,.page-entry-1,.page-entry-2,.page-entry-3,.sidebar-entry [data-testid='stSidebar'],[data-testid='stButton'] button,[data-testid='stDownloadButton'] button,[data-testid='stChatInput']{animation:none!important;opacity:1!important;transform:none!important;transition:none!important}}
+@media (prefers-reduced-motion: reduce){.drill-section,.chip-btn,[data-testid='stChatMessage'],[class*='st-key-chatmsg-user'] [data-testid='stChatMessage'],[class*='st-key-chatmsg-asst'] [data-testid='stChatMessage'],.typing-dots span,.pill,.page-entry-1,.page-entry-2,.page-entry-3,.sidebar-entry [data-testid='stSidebar'],[data-testid='stButton'] button,[data-testid='stDownloadButton'] button,[data-testid='stChatInput'],[data-testid='stAppViewContainer']::before{animation:none!important;opacity:1!important;transform:none!important;transition:none!important}}
 #MainMenu,footer{visibility:hidden}
 </style>""", unsafe_allow_html=True)
 
