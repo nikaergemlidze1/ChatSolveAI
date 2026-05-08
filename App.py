@@ -94,8 +94,10 @@ body{font-weight:400}
 .src-card.top{border-left-color:#66bb6a;background:rgba(102,187,106,.08)}
 .src-card.top:hover{border-left-color:#81c784;box-shadow:0 6px 16px rgba(102,187,106,.18);background:rgba(102,187,106,.14)}
 .src-meta{font-size:.68rem;color:#7a8190;margin-top:4px}
-.chip-btn button{width:100%!important;background:rgba(79,139,249,.08)!important;border:1px solid rgba(255,255,255,.08)!important;color:#d4d7dd!important;text-align:left!important;padding:10px 14px!important;border-radius:10px!important;transition:background-color .15s ease,border-color .15s ease,transform .12s ease!important}
-.chip-btn button:hover{background:rgba(79,139,249,.15)!important;border-color:#4F8BF9!important;transform:translateX(2px)}
+.chip-btn{max-width:800px;width:100%;margin-left:auto!important;margin-right:auto!important}
+.chip-btn button{width:100%!important;background:rgba(255,255,255,.03)!important;border:1px solid rgba(255,255,255,.08)!important;color:#d4d7dd!important;text-align:left!important;padding:12px 16px!important;border-radius:12px!important;box-shadow:inset 4px 0 0 transparent!important;transition:background-color .2s ease-in-out,border-color .2s ease-in-out,box-shadow .2s ease-in-out,transform .15s ease-in-out!important}
+.chip-btn button:hover{background:rgba(255,255,255,.06)!important;border-color:rgba(79,139,249,.30)!important;box-shadow:inset 4px 0 0 #4F8BF9,0 4px 14px rgba(0,0,0,.18)!important;transform:translateX(5px)!important}
+.chip-btn button:active{transform:translateX(3px) scale(.99)!important}
 [class*='st-key-iconbtn_'] button{transition:background-color .15s ease,border-color .15s ease,transform .15s ease!important}
 [class*='st-key-iconbtn_'] button:hover{transform:translateY(-2px)}
 [data-testid='stButton'] button,[data-testid='stDownloadButton'] button{transition:background-color .15s ease,border-color .15s ease,transform .12s ease,box-shadow .15s ease!important}
