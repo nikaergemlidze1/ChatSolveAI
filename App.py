@@ -125,6 +125,16 @@ body{font-weight:400}
 [data-testid='stSidebar'] [data-testid='stMetricLabel'] p{font-size:.62rem!important}
 [data-testid='stSidebar'] [data-testid='stMetricValue']{font-family:var(--font-display)!important;font-size:1.35rem!important;color:#E5E7EB!important;font-weight:600!important;text-shadow:0 0 12px rgba(79,139,249,.28)}
 [data-testid='stSidebar'] [data-testid='stMetricDelta']{display:none!important}
+*::-webkit-scrollbar{width:8px;height:8px}
+*::-webkit-scrollbar-track{background:rgba(255,255,255,.04);border-radius:4px}
+*::-webkit-scrollbar-thumb{background:rgba(79,139,249,.40);border-radius:4px;border:1px solid rgba(255,255,255,.04)}
+*::-webkit-scrollbar-thumb:hover{background:rgba(79,139,249,.65)}
+*::-webkit-scrollbar-corner{background:transparent}
+*{scrollbar-width:thin;scrollbar-color:rgba(79,139,249,.40) rgba(255,255,255,.04)}
+a,a:visited{transition:color .2s ease-in-out,opacity .2s ease-in-out,text-decoration-color .2s ease-in-out}
+a:hover{color:var(--accent)}
+[data-testid='stExpander'] summary,[data-testid='stCaptionContainer']{transition:color .2s ease-in-out,background-color .2s ease-in-out}
+[data-testid='stExpander'] summary:hover{color:var(--accent)!important}
 .drill-section{overflow:hidden;animation:drillExpand .45s cubic-bezier(.16,1,.3,1) both}
 @keyframes drillExpand{0%{max-height:0;opacity:0;transform:translateY(-8px) scale(.98)}60%{opacity:.85}100%{max-height:1200px;opacity:1;transform:translateY(0) scale(1)}}
 .chip-btn{animation:chipFadeIn .32s cubic-bezier(.16,1,.3,1) both;opacity:0}
@@ -778,6 +788,76 @@ def render_chat(sidebar_slot, main_slot):
                 }, 120);
                 </script>""",
                 height=0,
+            )
+
+        # Copy-last-answer button. Renders only when the most recent
+        # message is from the assistant (no point offering it during a
+        # pending stream or right after the user's own message). Single
+        # iframe at the bottom — keeps DOM cost flat regardless of how
+        # long the conversation grows. Success state shows '✓ Copied'
+        # for 1.5 s, then resets.
+        if msgs and msgs[-1]["role"] == "assistant" and not has_pending:
+            last_answer = msgs[-1].get("content", "") or ""
+            payload = json.dumps(last_answer)
+            components.html(
+                f"""<!doctype html>
+                <html><head><style>
+                  body {{margin:0;padding:0;background:transparent;
+                         font-family:'Inter',-apple-system,system-ui,sans-serif}}
+                  .copy-btn {{
+                    display:inline-flex;align-items:center;gap:6px;
+                    padding:6px 12px;border-radius:10px;
+                    background:rgba(79,139,249,.10);
+                    border:1px solid rgba(79,139,249,.25);
+                    color:#cdd5e0;font-size:.78rem;font-weight:500;
+                    cursor:pointer;
+                    transition:background-color .2s ease-in-out,
+                               border-color .2s ease-in-out,
+                               transform .12s ease-in-out;
+                  }}
+                  .copy-btn:hover {{
+                    background:rgba(79,139,249,.20);
+                    border-color:#4F8BF9;
+                    transform:translateY(-1px);
+                  }}
+                  .copy-btn.copied {{
+                    background:rgba(52,211,153,.18);
+                    border-color:#34d399;color:#a7f3d0;
+                  }}
+                  .copy-btn .icon {{font-size:.95rem;line-height:1}}
+                </style></head>
+                <body>
+                  <button id="cb" class="copy-btn" type="button">
+                    <span class="icon">📋</span><span class="lbl">Copy answer</span>
+                  </button>
+                  <script>
+                    const btn = document.getElementById('cb');
+                    const lbl = btn.querySelector('.lbl');
+                    const icon = btn.querySelector('.icon');
+                    const TEXT = {payload};
+                    btn.addEventListener('click', async () => {{
+                      try {{
+                        await navigator.clipboard.writeText(TEXT);
+                      }} catch (e) {{
+                        // Fallback: textarea + execCommand (older browsers).
+                        const ta = document.createElement('textarea');
+                        ta.value = TEXT; ta.style.position='fixed'; ta.style.opacity='0';
+                        document.body.appendChild(ta); ta.select();
+                        try {{ document.execCommand('copy'); }} catch (_) {{}}
+                        document.body.removeChild(ta);
+                      }}
+                      btn.classList.add('copied');
+                      icon.textContent = '✓';
+                      lbl.textContent = 'Copied';
+                      setTimeout(() => {{
+                        btn.classList.remove('copied');
+                        icon.textContent = '📋';
+                        lbl.textContent = 'Copy answer';
+                      }}, 1500);
+                    }});
+                  </script>
+                </body></html>""",
+                height=44,
             )
 
         if prompt := st.chat_input("Ask about orders, billing, account, or technical issues…"):
