@@ -135,6 +135,25 @@ a,a:visited{transition:color .2s ease-in-out,opacity .2s ease-in-out,text-decora
 a:hover{color:var(--accent)}
 [data-testid='stExpander'] summary,[data-testid='stCaptionContainer']{transition:color .2s ease-in-out,background-color .2s ease-in-out}
 [data-testid='stExpander'] summary:hover{color:var(--accent)!important}
+[data-testid='stMarkdownContainer'] table,.stTable table{width:100%!important;border-collapse:separate!important;border-spacing:0!important;margin:12px 0!important;background:rgba(255,255,255,.02)!important;border:1px solid rgba(255,255,255,.06)!important;border-radius:10px!important;overflow:hidden!important;font-size:.85rem}
+[data-testid='stMarkdownContainer'] table th,.stTable table th{padding:10px 14px!important;text-align:left!important;font-family:var(--font-display)!important;font-size:.72rem!important;font-weight:700!important;text-transform:uppercase!important;letter-spacing:.08em!important;color:#cdd5e0!important;background:rgba(79,139,249,.08)!important;border-bottom:2px solid #4F8BF9!important}
+[data-testid='stMarkdownContainer'] table td,.stTable table td{padding:9px 14px!important;color:#d4d7dd!important;border-bottom:1px solid rgba(255,255,255,.04)!important;transition:background-color .15s ease-in-out}
+[data-testid='stMarkdownContainer'] table tr:nth-child(even) td,.stTable table tr:nth-child(even) td{background:rgba(255,255,255,.02)!important}
+[data-testid='stMarkdownContainer'] table tr:hover td,.stTable table tr:hover td{background:rgba(79,139,249,.10)!important}
+[data-testid='stMarkdownContainer'] table tr:last-child td,.stTable table tr:last-child td{border-bottom:none!important}
+[data-testid='stMarkdownContainer'] pre,pre[class*='language-']{background:#090B10!important;border:1px solid rgba(255,255,255,.06)!important;border-radius:10px!important;padding:14px 18px!important;margin:10px 0!important;font-size:.85rem!important;line-height:1.55!important;box-shadow:inset 0 1px 0 rgba(255,255,255,.02),0 4px 14px rgba(0,0,0,.25)!important;overflow-x:auto}
+[data-testid='stMarkdownContainer'] pre code,pre[class*='language-'] code{background:transparent!important;color:#C0CAF5!important;padding:0!important;border-radius:0!important;font-family:'JetBrains Mono','SF Mono',Monaco,Consolas,'Roboto Mono',monospace!important}
+[data-testid='stMarkdownContainer'] :not(pre)>code,[data-testid='stMarkdownContainer'] p>code,[data-testid='stMarkdownContainer'] li>code{background:rgba(79,139,249,.14)!important;color:#a5c2f5!important;border:1px solid rgba(79,139,249,.20)!important;padding:1px 6px!important;border-radius:5px!important;font-size:.85em!important;font-family:'JetBrains Mono','SF Mono',Monaco,Consolas,'Roboto Mono',monospace!important}
+.token.keyword,.hljs-keyword,.hljs-built_in{color:#7AA2F7!important;font-weight:600}
+.token.string,.hljs-string,.hljs-attr{color:#9ECE6A!important}
+.token.number,.token.boolean,.hljs-number,.hljs-literal{color:#FF9E64!important}
+.token.comment,.hljs-comment{color:#7a8190!important;font-style:italic}
+.token.function,.token.class-name,.hljs-function,.hljs-title,.hljs-class{color:#BB9AF7!important}
+.token.operator,.token.punctuation,.hljs-operator,.hljs-punctuation{color:#C0CAF5!important}
+.token.tag,.hljs-tag,.hljs-name{color:#F7768E!important}
+.token.property,.hljs-attribute{color:#E0AF68!important}
+[data-testid='stCodeCopyButton'],[data-testid='stCodeCopyButton'] button,button[title='Copy to clipboard']{background:rgba(79,139,249,.10)!important;border:1px solid rgba(79,139,249,.25)!important;border-radius:8px!important;color:#cdd5e0!important;transition:background-color .2s ease-in-out,border-color .2s ease-in-out,transform .12s ease-in-out!important}
+[data-testid='stCodeCopyButton']:hover,[data-testid='stCodeCopyButton'] button:hover,button[title='Copy to clipboard']:hover{background:rgba(79,139,249,.22)!important;border-color:#4F8BF9!important;transform:translateY(-1px)}
 .drill-section{overflow:hidden;animation:drillExpand .45s cubic-bezier(.16,1,.3,1) both}
 @keyframes drillExpand{0%{max-height:0;opacity:0;transform:translateY(-8px) scale(.98)}60%{opacity:.85}100%{max-height:1200px;opacity:1;transform:translateY(0) scale(1)}}
 .chip-btn{animation:chipFadeIn .32s cubic-bezier(.16,1,.3,1) both;opacity:0}
