@@ -100,7 +100,7 @@ body{font-weight:400}
 .chip-btn button:hover{background:rgba(255,255,255,.06)!important;border-color:rgba(79,139,249,.30)!important;color:#E5E7EB!important;box-shadow:inset 4px 0 0 #4F8BF9,0 4px 14px rgba(0,0,0,.18)!important;transform:translateX(5px)!important}
 .chip-btn button:hover::after{color:var(--accent);transform:translateY(-50%) translateX(4px)}
 .chip-btn button:active{transform:translateX(3px) scale(.99)!important}
-[class*='st-key-iconbtn_'] button{transition:background-color .15s ease,border-color .15s ease,transform .15s ease!important}
+[class*='st-key-iconbtn_'] button{transition:transform .4s cubic-bezier(.16,1,.3,1),opacity .4s cubic-bezier(.16,1,.3,1),box-shadow .3s cubic-bezier(.16,1,.3,1),background-color .2s ease-in-out,border-color .2s ease-in-out!important}
 [class*='st-key-iconbtn_'] button:hover{transform:translateY(-2px)}
 [data-testid='stButton'] button,[data-testid='stDownloadButton'] button{transition:background-color .15s ease,border-color .15s ease,transform .12s ease,box-shadow .15s ease!important}
 [class*='st-key-btn_new_chat'] button:hover,[data-testid='stDownloadButton'] button:hover,[class*='st-key-up_'] button:hover,[class*='st-key-down_'] button:hover,[class*='st-key-regen_'] button:hover,[class*='st-key-admin_signout'] button:hover{transform:translateY(-1px) scale(1.02);box-shadow:0 4px 12px rgba(79,139,249,.18);border-color:#4F8BF9!important}
@@ -638,12 +638,32 @@ def render_chat(sidebar_slot, main_slot):
         # The bulky icon background-image rules are injected ONCE at
         # module load (above), not per render — that keeps the icon row
         # mounted across reruns instead of being re-styled each time.
+        # Focus Mode: when a category is selected, dim and shrink the
+        # other icons, scale and glow the selected one. CSS rules
+        # injected per-render only when selected is not None — when
+        # nothing is selected, no rules apply and all icons sit at
+        # their default scale(1)/opacity(1).
         if selected is not None:
             st.markdown(
-                f"<style>.st-key-iconbtn_{selected} button{{"
+                f"<style>"
+                f"[class*='st-key-iconbtn_'] button{{"
+                f"opacity:.4!important;transform:scale(.95)!important"
+                f"}}"
+                f"[class*='st-key-iconbtn_'] button:hover{{"
+                f"opacity:.7!important;transform:scale(.97)!important"
+                f"}}"
+                f".st-key-iconbtn_{selected} button{{"
+                f"opacity:1!important;"
+                f"transform:scale(1.05)!important;"
                 f"border-color:#4F8BF9!important;"
                 f"background-color:rgba(79,139,249,0.18)!important;"
-                f"}}</style>",
+                f"box-shadow:0 0 0 2px rgba(79,139,249,.30),"
+                f"0 0 28px rgba(79,139,249,.30)!important"
+                f"}}"
+                f".st-key-iconbtn_{selected} button:hover{{"
+                f"transform:scale(1.07)!important"
+                f"}}"
+                f"</style>",
                 unsafe_allow_html=True,
             )
 
