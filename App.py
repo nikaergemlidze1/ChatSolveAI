@@ -111,6 +111,20 @@ body{font-weight:400}
 [data-testid='stChatInput'] button:hover{background:rgba(79,139,249,.22)!important;transform:translateY(-1px)}
 [data-testid='stChatInput'] button:active{transform:translateY(0) scale(.96)}
 @keyframes inputPulse{0%,100%{box-shadow:0 0 0 0 rgba(79,139,249,0)}50%{box-shadow:0 0 0 4px rgba(79,139,249,.20),0 0 18px rgba(79,139,249,.18)}}
+.agent-status{display:flex;align-items:center;gap:9px;padding:8px 12px;border-radius:10px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.07);font-size:.82rem;font-weight:500;margin-bottom:8px}
+.agent-status__dot{width:9px;height:9px;border-radius:50%;display:inline-block;flex-shrink:0}
+.agent-status--online .agent-status__dot{background:#34d399;box-shadow:0 0 0 3px rgba(52,211,153,.20),0 0 10px rgba(52,211,153,.55);animation:dotPulse 1.6s ease-in-out infinite}
+.agent-status--online .agent-status__label{color:#a7f3d0}
+.agent-status--offline .agent-status__dot{background:#ef4444;box-shadow:0 0 0 3px rgba(239,68,68,.18)}
+.agent-status--offline .agent-status__label{color:#fca5a5}
+@keyframes dotPulse{0%,100%{box-shadow:0 0 0 3px rgba(52,211,153,.20),0 0 10px rgba(52,211,153,.55);transform:scale(1)}50%{box-shadow:0 0 0 6px rgba(52,211,153,.10),0 0 18px rgba(52,211,153,.85);transform:scale(1.08)}}
+.session-stats{margin:10px 0 4px;padding:10px 12px;border-radius:12px;background:rgba(79,139,249,.05);border:1px solid rgba(79,139,249,.14)}
+.session-stats__title{font-family:var(--font-display);font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.10em;color:#9ea3b0;margin-bottom:6px}
+[data-testid='stSidebar'] [data-testid='stMetric']{padding:4px 0!important;background:transparent!important}
+[data-testid='stSidebar'] [data-testid='stMetricLabel']{font-size:.62rem!important;text-transform:uppercase;letter-spacing:.08em;color:#7a8190!important;font-weight:600!important}
+[data-testid='stSidebar'] [data-testid='stMetricLabel'] p{font-size:.62rem!important}
+[data-testid='stSidebar'] [data-testid='stMetricValue']{font-family:var(--font-display)!important;font-size:1.35rem!important;color:#E5E7EB!important;font-weight:600!important;text-shadow:0 0 12px rgba(79,139,249,.28)}
+[data-testid='stSidebar'] [data-testid='stMetricDelta']{display:none!important}
 .drill-section{overflow:hidden;animation:drillExpand .45s cubic-bezier(.16,1,.3,1) both}
 @keyframes drillExpand{0%{max-height:0;opacity:0;transform:translateY(-8px) scale(.98)}60%{opacity:.85}100%{max-height:1200px;opacity:1;transform:translateY(0) scale(1)}}
 .chip-btn{animation:chipFadeIn .32s cubic-bezier(.16,1,.3,1) both;opacity:0}
@@ -140,7 +154,7 @@ body{font-weight:400}
 @keyframes pageEntryFade{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
 .sidebar-entry [data-testid='stSidebar']{animation:sidebarSlide .5s cubic-bezier(.16,1,.3,1) both}
 @keyframes sidebarSlide{from{transform:translateX(-30px);opacity:0}to{transform:translateX(0);opacity:1}}
-@media (prefers-reduced-motion: reduce){.drill-section,.chip-btn,[data-testid='stChatMessage'],[class*='st-key-chatmsg-user'] [data-testid='stChatMessage'],[class*='st-key-chatmsg-asst'] [data-testid='stChatMessage'],.typing-dots span,.pill,.page-entry-1,.page-entry-2,.page-entry-3,.sidebar-entry [data-testid='stSidebar'],[data-testid='stButton'] button,[data-testid='stDownloadButton'] button,[data-testid='stChatInput'],[data-testid='stAppViewContainer']::before{animation:none!important;opacity:1!important;transform:none!important;transition:none!important}}
+@media (prefers-reduced-motion: reduce){.drill-section,.chip-btn,[data-testid='stChatMessage'],[class*='st-key-chatmsg-user'] [data-testid='stChatMessage'],[class*='st-key-chatmsg-asst'] [data-testid='stChatMessage'],.typing-dots span,.pill,.page-entry-1,.page-entry-2,.page-entry-3,.sidebar-entry [data-testid='stSidebar'],[data-testid='stButton'] button,[data-testid='stDownloadButton'] button,[data-testid='stChatInput'],[data-testid='stAppViewContainer']::before,.agent-status--online .agent-status__dot{animation:none!important;opacity:1!important;transform:none!important;transition:none!important}}
 #MainMenu,footer{visibility:hidden}
 </style>""", unsafe_allow_html=True)
 
@@ -457,10 +471,56 @@ def render_chat(sidebar_slot, main_slot):
         st.caption("LangChain · FAISS · GPT‑3.5‑turbo\nMongoDB · FastAPI · Docker · HF Spaces")
         st.divider()
         healthy = api_health()
+        # Custom status indicator: pulsing green dot when the backend
+        # health check passes, static red dot when not. Replaces the
+        # default st.success / st.error pill so we get the 'alive'
+        # animated look the design pass asked for.
         if healthy:
-            st.success("API connected", icon="✅")
+            st.markdown(
+                '<div class="agent-status agent-status--online">'
+                '<span class="agent-status__dot"></span>'
+                '<span class="agent-status__label">Agent: Online</span>'
+                '</div>',
+                unsafe_allow_html=True,
+            )
         else:
-            st.error(f"API unreachable at {API_URL}", icon="🔴")
+            st.markdown(
+                '<div class="agent-status agent-status--offline" '
+                f'title="API unreachable at {API_URL}">'
+                '<span class="agent-status__dot"></span>'
+                '<span class="agent-status__label">Agent: Offline</span>'
+                '</div>',
+                unsafe_allow_html=True,
+            )
+
+        # Session Intelligence: aggregated per-conversation stats. Only
+        # renders once we have at least one completed user+assistant
+        # round; the sidebar starts compact and grows as the chat builds.
+        msgs_now = st.session_state.messages
+        assistant_metas = [
+            m["meta"] for m in msgs_now
+            if m["role"] == "assistant" and m.get("meta")
+        ]
+        if assistant_metas:
+            user_count = sum(1 for m in msgs_now if m["role"] == "user")
+            avg_conf = sum(float(x.get("confidence", 0)) for x in assistant_metas) / len(assistant_metas)
+            avg_lat_ms = sum(float(x.get("latency_ms", 0)) for x in assistant_metas) / len(assistant_metas)
+            st.markdown('<div class="session-stats">', unsafe_allow_html=True)
+            st.markdown(
+                '<div class="session-stats__title">Session Intelligence</div>',
+                unsafe_allow_html=True,
+            )
+            c1, c2 = st.columns(2)
+            with c1:
+                st.metric("Messages", user_count)
+            with c2:
+                st.metric("Avg confidence", f"{avg_conf*100:.0f}%")
+            st.metric(
+                "Avg response",
+                f"{avg_lat_ms/1000:.1f} s" if avg_lat_ms >= 1000 else f"{avg_lat_ms:.0f} ms",
+            )
+            st.markdown('</div>', unsafe_allow_html=True)
+
         st.caption(f"Session: `{st.session_state.session_id[:8]}…`")
         st.divider()
         if st.button("🗑 New chat", key="btn_new_chat", use_container_width=True):
