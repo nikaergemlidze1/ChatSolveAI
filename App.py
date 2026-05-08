@@ -163,14 +163,14 @@ a:hover{color:var(--accent)}
 .drill-section h3{display:inline-flex;align-items:center;gap:10px;font-family:var(--font-display)!important;font-weight:700;font-size:1.25rem;letter-spacing:.02em;color:#E5E7EB;margin:8px 0 16px!important;padding-bottom:10px;background-image:linear-gradient(90deg,var(--accent) 0%,rgba(79,139,249,.45) 30%,transparent 75%);background-size:60% 2px;background-repeat:no-repeat;background-position:0 100%;animation:sectionHeaderFade .8s cubic-bezier(.22,1,.36,1) both}
 .drill-section h3::before{content:'✦';color:var(--accent);font-size:.9em;text-shadow:0 0 12px rgba(79,139,249,.55);flex-shrink:0;display:inline-block}
 @keyframes sectionHeaderFade{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
-.chip-btn{opacity:0;transform-origin:top center;animation:slideUpFade .45s cubic-bezier(.22,1,.36,1) backwards;animation-delay:.10s}
-.chip-btn:nth-of-type(1){animation-delay:.10s}
-.chip-btn:nth-of-type(2){animation-delay:.20s}
-.chip-btn:nth-of-type(3){animation-delay:.30s}
-.chip-btn:nth-of-type(4){animation-delay:.40s}
-.chip-btn:nth-of-type(5){animation-delay:.50s}
-.chip-btn:nth-of-type(6){animation-delay:.60s}
-@keyframes slideUpFade{from{opacity:0;transform:translateY(15px) scale(.9);letter-spacing:.05em}to{opacity:1;transform:translateY(0) scale(1);letter-spacing:normal}}
+.chip-btn{opacity:0;transform-origin:center;animation:slideUpFade .45s cubic-bezier(.34,1.56,.64,1) backwards;animation-delay:.07s}
+.chip-btn:nth-of-type(1){animation-delay:.07s}
+.chip-btn:nth-of-type(2){animation-delay:.14s}
+.chip-btn:nth-of-type(3){animation-delay:.21s}
+.chip-btn:nth-of-type(4){animation-delay:.28s}
+.chip-btn:nth-of-type(5){animation-delay:.35s}
+.chip-btn:nth-of-type(6){animation-delay:.42s}
+@keyframes slideUpFade{from{opacity:0;filter:blur(8px);transform:scale(.8)}to{opacity:1;filter:blur(0);transform:scale(1)}}
 [data-testid='stChatMessage']{border-radius:14px!important;padding:12px 14px!important;margin-bottom:10px!important;box-shadow:0 4px 18px rgba(0,0,0,.25);transition:box-shadow .2s ease,transform .2s ease}
 [data-testid='stChatMessage']:hover{box-shadow:0 6px 22px rgba(0,0,0,.32)}
 [class*='st-key-chatmsg-user'] [data-testid='stChatMessage']{background:rgba(79,139,249,.10)!important;border:1px solid rgba(79,139,249,.22)!important;border-left:3px solid #4F8BF9!important;backdrop-filter:blur(10px) saturate(140%)!important;-webkit-backdrop-filter:blur(10px) saturate(140%)!important;animation:bubbleInRight .35s cubic-bezier(.16,1,.3,1) both}
