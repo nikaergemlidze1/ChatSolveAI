@@ -14,7 +14,7 @@ on:
 jobs:
   ping:
     runs-on: ubuntu-latest
-    timeout-minutes: 6
+    timeout-minutes: 9
     steps:
       - name: Ping Hugging Face Spaces backend (/health)
         run: |
@@ -65,41 +65,80 @@ jobs:
       - name: Visit Streamlit app like a real browser
         run: |
           python <<'PY'
-          import sys
-          from playwright.sync_api import sync_playwright
+          import sys, time
+          from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
 
           URL = "https://chatsolveai-nika.streamlit.app/"
           try:
               with sync_playwright() as p:
-                  browser = p.chromium.launch(headless=True)
+                  # Use a realistic Chrome on Linux signature and disable
+                  # the automation flag so Streamlit Cloud's bot heuristics
+                  # are less likely to discount the visit.
+                  browser = p.chromium.launch(
+                      headless=True,
+                      args=[
+                          "--disable-blink-features=AutomationControlled",
+                          "--no-sandbox",
+                      ],
+                  )
                   ctx = browser.new_context(
                       user_agent=(
                           "Mozilla/5.0 (X11; Linux x86_64) "
                           "AppleWebKit/537.36 (KHTML, like Gecko) "
                           "Chrome/124.0 Safari/537.36"
-                      )
+                      ),
+                      viewport={"width": 1366, "height": 900},
+                      locale="en-US",
+                  )
+                  # Hide webdriver flag from page-side detection.
+                  ctx.add_init_script(
+                      "Object.defineProperty(navigator,'webdriver',{get:()=>undefined})"
                   )
                   page = ctx.new_page()
-                  # If the app is already asleep this returns the wake-up
-                  # screen — clicking the button kicks Streamlit Cloud
-                  # to spin the container back up.
-                  page.goto(URL, wait_until="domcontentloaded", timeout=60000)
+                  page.goto(URL, wait_until="domcontentloaded", timeout=90000)
+
+                  # If the wake-up screen is showing, click the button and
+                  # then wait for the actual app shell to load.
                   try:
-                      btn = page.get_by_role("button", name="Yes, get this app back up!")
-                      if btn.is_visible(timeout=2000):
+                      btn = page.get_by_role(
+                          "button", name="Yes, get this app back up!"
+                      )
+                      if btn.is_visible(timeout=3000):
                           print("App was asleep — clicking wake button.")
                           btn.click()
+                          # Streamlit Cloud spin-up takes 20-40 s. Wait
+                          # for the app's actual root selector to appear.
+                          try:
+                              page.wait_for_selector(
+                                  "[data-testid='stApp']", timeout=90000
+                              )
+                              print("Streamlit container booted.")
+                          except PWTimeout:
+                              print(
+                                  "Wake clicked but stApp didn't appear in 90 s.",
+                                  file=sys.stderr,
+                              )
                   except Exception:
                       pass
-                  # Hold the session open for ~20s so Streamlit's
-                  # activity counter registers the visit.
+
+                  # Even if the app was already awake, ensure the main
+                  # shell is present before counting the visit.
+                  try:
+                      page.wait_for_selector(
+                          "[data-testid='stApp']", timeout=30000
+                      )
+                  except PWTimeout:
+                      print("stApp not found — page may still be initial loading.")
+
+                  # Hold the WebSocket session open long enough for
+                  # Streamlit's activity counter to register a real
+                  # visitor session. 60 s comfortably covers the
+                  # platform's session-detection window.
                   page.wait_for_load_state("networkidle", timeout=60000)
-                  page.wait_for_timeout(20000)
+                  page.wait_for_timeout(60000)
                   print(f"Streamlit visit OK: {page.title()}")
                   browser.close()
           except Exception as e:
-              # Don't fail the whole job on a transient browser error;
-              # the HF backend ping already ran above.
               print(f"Streamlit visit error: {e}", file=sys.stderr)
               sys.exit(0)
           PY
