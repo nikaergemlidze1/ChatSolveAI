@@ -76,7 +76,7 @@ st.markdown("""
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Lexend:wght@600;700&display=swap" rel="stylesheet">
 <style>
 :root {--accent:#4F8BF9;--accent-2:#8E6BFF;--font-ui:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,system-ui,sans-serif;--font-display:'Lexend','Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif;}
-html,body,[data-testid='stApp'],[data-testid='stSidebar'],[data-testid='stChatInput'] textarea,[data-testid='stChatMessage'],.stMarkdown,.stButton button,.stDownloadButton button,[class*='st-key-iconbtn_'] button,.chip-btn button,.stTextInput input,.stSelectbox div[role='combobox']{font-family:var(--font-ui)!important;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;text-rendering:optimizeLegibility}
+html,body,[data-testid='stApp'],[data-testid='stSidebar'],[data-testid='stChatInput'] textarea,[data-testid='stChatMessage'],.stMarkdown,.stButton button,.stDownloadButton button,[class*='st-key-iconbtn_'] button,[class*='st-key-chipwrap_'] button,.stTextInput input,.stSelectbox div[role='combobox']{font-family:var(--font-ui)!important;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;text-rendering:optimizeLegibility}
 .hero-title,h1,h2,h3,.drill-section h3,[data-testid='stChatMessage'] h1,[data-testid='stChatMessage'] h2,[data-testid='stChatMessage'] h3{font-family:var(--font-display)!important;letter-spacing:-.01em}
 code,pre,kbd,samp,tt,[class*='monospace'],[data-testid='stCode']{font-family:'JetBrains Mono','SF Mono',Monaco,Consolas,'Roboto Mono',monospace!important}
 body{font-weight:400}
@@ -94,12 +94,18 @@ body{font-weight:400}
 .src-card.top{border-left-color:#66bb6a;background:rgba(102,187,106,.08)}
 .src-card.top:hover{border-left-color:#81c784;box-shadow:0 6px 16px rgba(102,187,106,.18);background:rgba(102,187,106,.14)}
 .src-meta{font-size:.68rem;color:#7a8190;margin-top:4px}
-.chip-btn{max-width:800px;width:100%;margin-left:auto!important;margin-right:auto!important}
-.chip-btn button{width:100%!important;background:rgba(255,255,255,.03)!important;border:1px solid rgba(255,255,255,.08)!important;color:#D1D5DB!important;font-weight:500!important;text-align:left!important;padding:12px 38px 12px 16px!important;border-radius:12px!important;box-shadow:inset 4px 0 0 transparent!important;position:relative!important;transition:background-color .2s ease-in-out,border-color .2s ease-in-out,box-shadow .2s ease-in-out,transform .15s ease-in-out,color .2s ease-in-out!important}
-.chip-btn button::after{content:'→';position:absolute;right:16px;top:50%;transform:translateY(-50%) translateX(0);color:rgba(255,255,255,.35);font-size:1rem;font-weight:500;transition:color .2s ease-in-out,transform .25s cubic-bezier(.16,1,.3,1);pointer-events:none}
-.chip-btn button:hover{background:rgba(255,255,255,.06)!important;border-color:rgba(79,139,249,.30)!important;color:#E5E7EB!important;box-shadow:inset 4px 0 0 #4F8BF9,0 4px 14px rgba(0,0,0,.18)!important;transform:translateX(5px)!important}
-.chip-btn button:hover::after{color:var(--accent);transform:translateY(-50%) translateX(4px)}
-.chip-btn button:active{transform:translateX(3px) scale(.99)!important}
+[class*='st-key-chipwrap_']{max-width:800px;width:100%;margin-left:auto!important;margin-right:auto!important;opacity:0;transform-origin:center;animation:slideUpFade .7s cubic-bezier(.22,1.6,.36,1) backwards;animation-delay:.10s}
+[class*='st-key-chipwrap_'] button{width:100%!important;background:rgba(255,255,255,.03)!important;border:1px solid rgba(255,255,255,.08)!important;color:#D1D5DB!important;font-weight:500!important;text-align:left!important;padding:12px 38px 12px 16px!important;border-radius:12px!important;box-shadow:inset 4px 0 0 transparent!important;position:relative!important;transition:background-color .2s ease-in-out,border-color .2s ease-in-out,box-shadow .2s ease-in-out,transform .15s ease-in-out,color .2s ease-in-out!important}
+[class*='st-key-chipwrap_'] button::after{content:'→';position:absolute;right:16px;top:50%;transform:translateY(-50%) translateX(0);color:rgba(255,255,255,.35);font-size:1rem;font-weight:500;transition:color .2s ease-in-out,transform .25s cubic-bezier(.16,1,.3,1);pointer-events:none}
+[class*='st-key-chipwrap_'] button:hover{background:rgba(255,255,255,.06)!important;border-color:rgba(79,139,249,.30)!important;color:#E5E7EB!important;box-shadow:inset 4px 0 0 #4F8BF9,0 4px 14px rgba(0,0,0,.18)!important;transform:translateX(5px)!important}
+[class*='st-key-chipwrap_'] button:hover::after{color:var(--accent);transform:translateY(-50%) translateX(4px)}
+[class*='st-key-chipwrap_'] button:active{transform:translateX(3px) scale(.99)!important}
+[class*='st-key-chipwrap_pos1_']{animation-delay:.10s;animation-duration:.70s}
+[class*='st-key-chipwrap_pos2_']{animation-name:slideUpFadeRight;animation-delay:.28s;animation-duration:.60s}
+[class*='st-key-chipwrap_pos3_']{animation-delay:.46s;animation-duration:.80s}
+[class*='st-key-chipwrap_pos4_']{animation-name:slideUpFadeRight;animation-delay:.64s;animation-duration:.55s}
+[class*='st-key-chipwrap_pos5_']{animation-delay:.78s;animation-duration:.70s}
+[class*='st-key-chipwrap_pos6_']{animation-name:slideUpFadeRight;animation-delay:.92s;animation-duration:.60s}
 [class*='st-key-iconbtn_'] button{transition:transform .4s cubic-bezier(.16,1,.3,1),opacity .4s cubic-bezier(.16,1,.3,1),box-shadow .3s cubic-bezier(.16,1,.3,1),background-color .2s ease-in-out,border-color .2s ease-in-out!important}
 [class*='st-key-iconbtn_'] button:hover{transform:translateY(-2px)}
 [data-testid='stButton'] button,[data-testid='stDownloadButton'] button{transition:background-color .15s ease,border-color .15s ease,transform .12s ease,box-shadow .15s ease!important}
@@ -163,13 +169,6 @@ a:hover{color:var(--accent)}
 .drill-section h3{display:inline-flex;align-items:center;gap:10px;font-family:var(--font-display)!important;font-weight:700;font-size:1.25rem;letter-spacing:.02em;color:#E5E7EB;margin:8px 0 16px!important;padding-bottom:10px;background-image:linear-gradient(90deg,var(--accent) 0%,rgba(79,139,249,.45) 30%,transparent 75%);background-size:60% 2px;background-repeat:no-repeat;background-position:0 100%;animation:sectionHeaderFade .8s cubic-bezier(.22,1,.36,1) both}
 .drill-section h3::before{content:'✦';color:var(--accent);font-size:.9em;text-shadow:0 0 12px rgba(79,139,249,.55);flex-shrink:0;display:inline-block}
 @keyframes sectionHeaderFade{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
-.chip-btn{opacity:0;transform-origin:center;animation:slideUpFade .7s cubic-bezier(.22,1.6,.36,1) backwards;animation-delay:.10s}
-.chip-btn:nth-of-type(1){animation-delay:.10s;animation-duration:.70s}
-.chip-btn:nth-of-type(2){animation-name:slideUpFadeRight;animation-delay:.28s;animation-duration:.60s}
-.chip-btn:nth-of-type(3){animation-delay:.46s;animation-duration:.80s}
-.chip-btn:nth-of-type(4){animation-name:slideUpFadeRight;animation-delay:.64s;animation-duration:.55s}
-.chip-btn:nth-of-type(5){animation-delay:.78s;animation-duration:.70s}
-.chip-btn:nth-of-type(6){animation-name:slideUpFadeRight;animation-delay:.92s;animation-duration:.60s}
 @keyframes slideUpFade{0%{opacity:0;transform:translateY(-40px) translateX(-30px) rotate(-4deg) scale(.85);filter:drop-shadow(0 0 0 rgba(79,139,249,0))}70%{filter:drop-shadow(0 0 22px rgba(79,139,249,.55))}100%{opacity:1;transform:translateY(0) translateX(0) rotate(0deg) scale(1);filter:drop-shadow(0 0 0 rgba(79,139,249,0))}}
 @keyframes slideUpFadeRight{0%{opacity:0;transform:translateY(-40px) translateX(30px) rotate(4deg) scale(.85);filter:drop-shadow(0 0 0 rgba(79,139,249,0))}70%{filter:drop-shadow(0 0 22px rgba(79,139,249,.55))}100%{opacity:1;transform:translateY(0) translateX(0) rotate(0deg) scale(1);filter:drop-shadow(0 0 0 rgba(79,139,249,0))}}
 [data-testid='stChatMessage']{border-radius:14px!important;padding:12px 14px!important;margin-bottom:10px!important;box-shadow:0 4px 18px rgba(0,0,0,.25);transition:box-shadow .2s ease,transform .2s ease}
@@ -197,7 +196,7 @@ a:hover{color:var(--accent)}
 @keyframes pageEntryFade{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
 .sidebar-entry [data-testid='stSidebar']{animation:sidebarSlide .5s cubic-bezier(.16,1,.3,1) both}
 @keyframes sidebarSlide{from{transform:translateX(-30px);opacity:0}to{transform:translateX(0);opacity:1}}
-@media (prefers-reduced-motion: reduce){.drill-section,.drill-section h3,.chip-btn,.chip-btn button::after,[data-testid='stChatMessage'],[class*='st-key-chatmsg-user'] [data-testid='stChatMessage'],[class*='st-key-chatmsg-asst'] [data-testid='stChatMessage'],.typing-dots span,.pill,.page-entry-1,.page-entry-2,.page-entry-3,.sidebar-entry [data-testid='stSidebar'],[data-testid='stButton'] button,[data-testid='stDownloadButton'] button,[data-testid='stChatInput'],[data-testid='stAppViewContainer']::before,.agent-status--online .agent-status__dot{animation:none!important;opacity:1!important;transform:none!important;transition:none!important}.chip-btn button::after{transform:translateY(-50%)!important}}
+@media (prefers-reduced-motion: reduce){.drill-section,.drill-section h3,[class*='st-key-chipwrap_'],[class*='st-key-chipwrap_'] button::after,[data-testid='stChatMessage'],[class*='st-key-chatmsg-user'] [data-testid='stChatMessage'],[class*='st-key-chatmsg-asst'] [data-testid='stChatMessage'],.typing-dots span,.pill,.page-entry-1,.page-entry-2,.page-entry-3,.sidebar-entry [data-testid='stSidebar'],[data-testid='stButton'] button,[data-testid='stDownloadButton'] button,[data-testid='stChatInput'],[data-testid='stAppViewContainer']::before,.agent-status--online .agent-status__dot{animation:none!important;opacity:1!important;transform:none!important;transition:none!important}[class*='st-key-chipwrap_'] button::after{transform:translateY(-50%)!important}}
 #MainMenu,footer{visibility:hidden}
 </style>""", unsafe_allow_html=True)
 
@@ -758,17 +757,21 @@ def render_chat(sidebar_slot, main_slot):
                     unsafe_allow_html=True,
                 )
                 if remaining:
-                    # Stagger is now driven by .chip-btn:nth-of-type(N)
-                    # rules in the global stylesheet, so no inline
-                    # animation-delay needed here.
-                    for j, q in remaining:
-                        st.markdown('<div class="chip-btn">', unsafe_allow_html=True)
-                        if st.button(q, key=f"chip_{conv}_{selected}_{j}",
-                                     use_container_width=True,
-                                     disabled=has_pending):
-                            _queue_query(q)
-                            st.rerun()
-                        st.markdown('</div>', unsafe_allow_html=True)
+                    # Each chip lives inside its own keyed container so
+                    # the wrapper carries an st-key-chipwrap_pos<N>_...
+                    # class. CSS targets that class for animation +
+                    # styling — far more reliable than the previous
+                    # markdown-wrap trick whose <div class="chip-btn">
+                    # got auto-closed by the HTML parser, leaving the
+                    # button as a sibling instead of a child.
+                    for chip_pos, (j, q) in enumerate(remaining, start=1):
+                        wrap_key = f"chipwrap_pos{chip_pos}_{conv}_{selected}_{j}"
+                        with st.container(key=wrap_key):
+                            if st.button(q, key=f"chip_{conv}_{selected}_{j}",
+                                         use_container_width=True,
+                                         disabled=has_pending):
+                                _queue_query(q)
+                                st.rerun()
                 else:
                     st.caption("All questions in this topic asked.")
 
