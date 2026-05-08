@@ -14,17 +14,8 @@ on:
 jobs:
   ping:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 6
     steps:
-      - name: Ping Streamlit Cloud frontend
-        run: |
-          # -L: follow redirects, -s: silent, -o: discard body, -m: max time
-          # We don't fail the workflow on a transient hiccup (|| true),
-          # but we do log the HTTP code so failed pings are visible.
-          STATUS=$(curl -L -s -o /dev/null -w "%{http_code}" -m 30 \
-            "https://chatsolveai-nika.streamlit.app/" || echo "000")
-          echo "Streamlit Cloud → HTTP $STATUS"
-
       - name: Ping Hugging Face Spaces backend (/health)
         run: |
           STATUS=$(curl -L -s -o /dev/null -w "%{http_code}" -m 30 \
@@ -48,3 +39,67 @@ jobs:
             -d '{"session_id":"keepalive-cron","query":"hello"}' \
             "https://Nikollass-chatsolveai-api.hf.space/chat" \
             -o /dev/null -w "Warm-up /chat → HTTP %{http_code}, %{time_total}s\n" || true
+
+      # Streamlit Cloud's free-tier sleep detector counts WebSocket
+      # sessions, not bare HTTP GETs. A `curl` to the root URL no longer
+      # registers as activity, so the app sleeps anyway. Open the app
+      # with headless Chromium via Playwright instead — that establishes
+      # a real WebSocket session that Streamlit recognises as a visit.
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-v1
+
+      - name: Install Playwright + Chromium
+        run: |
+          pip install --quiet playwright
+          # --with-deps installs system libs Chromium needs on the runner.
+          python -m playwright install --with-deps chromium
+
+      - name: Visit Streamlit app like a real browser
+        run: |
+          python <<'PY'
+          import sys
+          from playwright.sync_api import sync_playwright
+
+          URL = "https://chatsolveai-nika.streamlit.app/"
+          try:
+              with sync_playwright() as p:
+                  browser = p.chromium.launch(headless=True)
+                  ctx = browser.new_context(
+                      user_agent=(
+                          "Mozilla/5.0 (X11; Linux x86_64) "
+                          "AppleWebKit/537.36 (KHTML, like Gecko) "
+                          "Chrome/124.0 Safari/537.36"
+                      )
+                  )
+                  page = ctx.new_page()
+                  # If the app is already asleep this returns the wake-up
+                  # screen — clicking the button kicks Streamlit Cloud
+                  # to spin the container back up.
+                  page.goto(URL, wait_until="domcontentloaded", timeout=60000)
+                  try:
+                      btn = page.get_by_role("button", name="Yes, get this app back up!")
+                      if btn.is_visible(timeout=2000):
+                          print("App was asleep — clicking wake button.")
+                          btn.click()
+                  except Exception:
+                      pass
+                  # Hold the session open for ~20s so Streamlit's
+                  # activity counter registers the visit.
+                  page.wait_for_load_state("networkidle", timeout=60000)
+                  page.wait_for_timeout(20000)
+                  print(f"Streamlit visit OK: {page.title()}")
+                  browser.close()
+          except Exception as e:
+              # Don't fail the whole job on a transient browser error;
+              # the HF backend ping already ran above.
+              print(f"Streamlit visit error: {e}", file=sys.stderr)
+              sys.exit(0)
+          PY
