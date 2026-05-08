@@ -158,8 +158,14 @@ a:hover{color:var(--accent)}
 [data-testid='stCodeCopyButton']:hover,[data-testid='stCodeCopyButton'] button:hover,button[title='Copy to clipboard']:hover{background:rgba(79,139,249,.22)!important;border-color:#4F8BF9!important;transform:translateY(-1px)}
 .drill-section{overflow:hidden;animation:drillExpand .45s cubic-bezier(.16,1,.3,1) both}
 @keyframes drillExpand{0%{max-height:0;opacity:0;transform:translateY(-8px) scale(.98)}60%{opacity:.85}100%{max-height:1200px;opacity:1;transform:translateY(0) scale(1)}}
-.chip-btn{animation:chipFadeIn .32s cubic-bezier(.16,1,.3,1) both;opacity:0}
-@keyframes chipFadeIn{from{opacity:0;transform:translateY(10px) scale(.98)}to{opacity:1;transform:translateY(0) scale(1)}}
+.chip-btn{opacity:0;animation:slideUpFade .45s cubic-bezier(.16,1,.3,1) backwards;animation-delay:.10s}
+.chip-btn:nth-of-type(1){animation-delay:.10s}
+.chip-btn:nth-of-type(2){animation-delay:.20s}
+.chip-btn:nth-of-type(3){animation-delay:.30s}
+.chip-btn:nth-of-type(4){animation-delay:.40s}
+.chip-btn:nth-of-type(5){animation-delay:.50s}
+.chip-btn:nth-of-type(6){animation-delay:.60s}
+@keyframes slideUpFade{from{opacity:0;transform:translateY(15px)}to{opacity:1;transform:translateY(0)}}
 [data-testid='stChatMessage']{border-radius:14px!important;padding:12px 14px!important;margin-bottom:10px!important;box-shadow:0 4px 18px rgba(0,0,0,.25);transition:box-shadow .2s ease,transform .2s ease}
 [data-testid='stChatMessage']:hover{box-shadow:0 6px 22px rgba(0,0,0,.32)}
 [class*='st-key-chatmsg-user'] [data-testid='stChatMessage']{background:rgba(79,139,249,.10)!important;border:1px solid rgba(79,139,249,.22)!important;border-left:3px solid #4F8BF9!important;backdrop-filter:blur(10px) saturate(140%)!important;-webkit-backdrop-filter:blur(10px) saturate(140%)!important;animation:bubbleInRight .35s cubic-bezier(.16,1,.3,1) both}
@@ -726,15 +732,11 @@ def render_chat(sidebar_slot, main_slot):
                     unsafe_allow_html=True,
                 )
                 if remaining:
-                    # Each chip gets a slightly increasing animation-delay
-                    # so they cascade in instead of all popping at once.
-                    for chip_index, (j, q) in enumerate(remaining):
-                        delay = 0.18 + chip_index * 0.08
-                        st.markdown(
-                            f'<div class="chip-btn" '
-                            f'style="animation-delay:{delay:.2f}s">',
-                            unsafe_allow_html=True,
-                        )
+                    # Stagger is now driven by .chip-btn:nth-of-type(N)
+                    # rules in the global stylesheet, so no inline
+                    # animation-delay needed here.
+                    for j, q in remaining:
+                        st.markdown('<div class="chip-btn">', unsafe_allow_html=True)
                         if st.button(q, key=f"chip_{conv}_{selected}_{j}",
                                      use_container_width=True,
                                      disabled=has_pending):
