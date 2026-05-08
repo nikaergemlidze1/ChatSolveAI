@@ -158,19 +158,19 @@ a:hover{color:var(--accent)}
 .token.property,.hljs-attribute{color:#E0AF68!important}
 [data-testid='stCodeCopyButton'],[data-testid='stCodeCopyButton'] button,button[title='Copy to clipboard']{background:rgba(79,139,249,.10)!important;border:1px solid rgba(79,139,249,.25)!important;border-radius:8px!important;color:#cdd5e0!important;transition:background-color .2s ease-in-out,border-color .2s ease-in-out,transform .12s ease-in-out!important}
 [data-testid='stCodeCopyButton']:hover,[data-testid='stCodeCopyButton'] button:hover,button[title='Copy to clipboard']:hover{background:rgba(79,139,249,.22)!important;border-color:#4F8BF9!important;transform:translateY(-1px)}
-.drill-section{overflow:hidden;animation:drillExpand .45s cubic-bezier(.16,1,.3,1) both}
+.drill-section{overflow:hidden;perspective:1000px;perspective-origin:center top;animation:drillExpand .45s cubic-bezier(.16,1,.3,1) both}
 @keyframes drillExpand{0%{max-height:0;opacity:0;transform:translateY(-8px) scale(.98)}60%{opacity:.85}100%{max-height:1200px;opacity:1;transform:translateY(0) scale(1)}}
 .drill-section h3{display:inline-flex;align-items:center;gap:10px;font-family:var(--font-display)!important;font-weight:700;font-size:1.25rem;letter-spacing:.02em;color:#E5E7EB;margin:8px 0 16px!important;padding-bottom:10px;background-image:linear-gradient(90deg,var(--accent) 0%,rgba(79,139,249,.45) 30%,transparent 75%);background-size:60% 2px;background-repeat:no-repeat;background-position:0 100%;animation:sectionHeaderFade .8s cubic-bezier(.22,1,.36,1) both}
 .drill-section h3::before{content:'✦';color:var(--accent);font-size:.9em;text-shadow:0 0 12px rgba(79,139,249,.55);flex-shrink:0;display:inline-block}
 @keyframes sectionHeaderFade{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
-.chip-btn{opacity:0;transform-origin:center;animation:slideUpFade .45s cubic-bezier(.34,1.56,.64,1) backwards;animation-delay:.07s}
+.chip-btn{opacity:0;transform-origin:top center;animation:slideUpFade .55s cubic-bezier(.34,1.56,.64,1) backwards;animation-delay:.07s}
 .chip-btn:nth-of-type(1){animation-delay:.07s}
 .chip-btn:nth-of-type(2){animation-delay:.14s}
 .chip-btn:nth-of-type(3){animation-delay:.21s}
 .chip-btn:nth-of-type(4){animation-delay:.28s}
 .chip-btn:nth-of-type(5){animation-delay:.35s}
 .chip-btn:nth-of-type(6){animation-delay:.42s}
-@keyframes slideUpFade{from{opacity:0;filter:blur(8px);transform:scale(.8)}to{opacity:1;filter:blur(0);transform:scale(1)}}
+@keyframes slideUpFade{from{opacity:0;filter:blur(8px);transform:perspective(1000px) rotateX(-30deg) translateY(20px) scale(.95)}to{opacity:1;filter:blur(0);transform:perspective(1000px) rotateX(0deg) translateY(0) scale(1)}}
 [data-testid='stChatMessage']{border-radius:14px!important;padding:12px 14px!important;margin-bottom:10px!important;box-shadow:0 4px 18px rgba(0,0,0,.25);transition:box-shadow .2s ease,transform .2s ease}
 [data-testid='stChatMessage']:hover{box-shadow:0 6px 22px rgba(0,0,0,.32)}
 [class*='st-key-chatmsg-user'] [data-testid='stChatMessage']{background:rgba(79,139,249,.10)!important;border:1px solid rgba(79,139,249,.22)!important;border-left:3px solid #4F8BF9!important;backdrop-filter:blur(10px) saturate(140%)!important;-webkit-backdrop-filter:blur(10px) saturate(140%)!important;animation:bubbleInRight .35s cubic-bezier(.16,1,.3,1) both}
