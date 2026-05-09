@@ -173,6 +173,7 @@ a:hover{color:var(--accent)}
 [data-testid='stAppViewContainer']::before{content:'';position:fixed;inset:0;z-index:-1;pointer-events:none;background:radial-gradient(circle at 18% 20%,rgba(79,139,249,.10) 0%,transparent 45%),radial-gradient(circle at 82% 25%,rgba(142,107,255,.08) 0%,transparent 50%),radial-gradient(circle at 30% 85%,rgba(30,41,59,.55) 0%,transparent 55%),radial-gradient(circle at 75% 75%,rgba(79,139,249,.06) 0%,transparent 50%),linear-gradient(180deg,#0E1117 0%,#161A23 60%,#1E293B 100%);background-size:220% 220%,220% 220%,220% 220%,220% 220%,100% 100%;background-position:0% 0%,100% 0%,0% 100%,100% 100%,0 0;animation:meshFlow 28s ease-in-out infinite}
 @keyframes meshFlow{0%,100%{background-position:0% 0%,100% 0%,0% 100%,100% 100%,0 0}50%{background-position:100% 50%,0% 50%,100% 0%,0% 100%,0 0}}
 [data-testid='StyledFullScreenButton'],[data-testid='stFullScreenButton'],[data-testid='stElementToolbar'],[data-testid='stHeaderActionElements']{display:none!important}
+.vega-actions,details.vega-actions,.vega-embed details,.vega-embed summary,.vega-bindings{display:none!important}
 .stMarkdown h1 a,.stMarkdown h2 a,.stMarkdown h3 a,.stMarkdown h4 a,.drill-section h3 a,h1 .anchor-link,h2 .anchor-link,h3 .anchor-link{display:none!important}
 [data-testid='stSidebar']{background:rgba(20,24,32,.65)!important;backdrop-filter:blur(14px) saturate(140%);-webkit-backdrop-filter:blur(14px) saturate(140%);border-right:1px solid rgba(255,255,255,.06)}
 [data-testid='stSidebar'] > div{background:transparent!important}
@@ -1041,14 +1042,14 @@ def render_admin(sidebar_slot, main_slot):
             st.divider()
 
             # Chart grid: 60/40 split. Line for time series, altair
-            # donut for category mix. 380px height keeps the row
-            # breathing on large monitors.
+            # donut for category mix. 320px height keeps the row
+            # compact and avoids excessive scroll on standard monitors.
             import altair as alt
             left, right = st.columns([6, 4], gap="large")
             with left:
                 st.subheader("Support Volume")
                 if timeseries and any(r.get("count", 0) > 0 for r in timeseries):
-                    st.line_chart(timeseries, x="date", y="count", height=380)
+                    st.line_chart(timeseries, x="date", y="count", height=320)
                 else:
                     st.info("No data yet.")
             with right:
@@ -1056,17 +1057,18 @@ def render_admin(sidebar_slot, main_slot):
                 if intents and any(r.get("count", 0) > 0 for r in intents):
                     donut = (
                         alt.Chart(alt.Data(values=intents))
-                        .mark_arc(innerRadius=70, stroke="#0f1218", strokeWidth=2)
+                        .mark_arc(innerRadius=55, outerRadius=110, stroke="#0f1218", strokeWidth=2)
                         .encode(
                             theta=alt.Theta("count:Q"),
                             color=alt.Color(
                                 "intent:N",
-                                legend=alt.Legend(title=None, orient="right"),
+                                legend=alt.Legend(title=None, orient="right", labelFontSize=11),
                                 scale=alt.Scale(scheme="tableau10"),
                             ),
                             tooltip=["intent:N", "count:Q"],
                         )
-                        .properties(height=380)
+                        .properties(height=320)
+                        .configure_view(strokeWidth=0)
                     )
                     st.altair_chart(donut, use_container_width=True)
                 else:
@@ -1078,12 +1080,12 @@ def render_admin(sidebar_slot, main_slot):
             with tab1:
                 top = summary.get("top_questions", [])
                 if top:
-                    st.dataframe(top, use_container_width=True, hide_index=True, height=300)
+                    st.dataframe(top, use_container_width=True, hide_index=True, height=260)
                 else:
                     st.info("No questions logged.")
             with tab2:
                 if sessions:
-                    st.dataframe(sessions, use_container_width=True, hide_index=True, height=300)
+                    st.dataframe(sessions, use_container_width=True, hide_index=True, height=260)
                 else:
                     st.info("No sessions.")
             st.caption(f"Last refreshed: {datetime.utcnow():%Y-%m-%d %H:%M UTC}")
@@ -1091,20 +1093,21 @@ def render_admin(sidebar_slot, main_slot):
 # ══════════════════════════════════════════════
 # Dispatch
 # ──────────────────────────────────────────────
-# st.empty() slot for each view region. On view switch, the slot's
-# container is replaced — but Streamlit Cloud keeps Vega / Altair
-# chart iframes mounted past the slot's reconciliation, leaving the
-# prior view's donut chart visible in the next view. Detect the
-# view transition and run a JS cleanup sweep that removes orphaned
-# chart-iframe containers whose data-testid identifies them as
-# components from the now-inactive view.
+# Each view writes into its OWN keyed wrapper container
+# (`view_main_chat` or `view_main_admin`). Every rerun also fires a
+# JS sweep that removes any DOM whose class matches the INACTIVE
+# view's wrapper. This is the only reliable way to flush Vega
+# chart iframes and other custom components that Streamlit Cloud
+# keeps mounted past the parent's reconciliation. Each removal is
+# wrapped in its own try/catch so NotFoundError on a half-detached
+# node cannot bubble up as a red error toast.
 # ══════════════════════════════════════════════
-with st.sidebar:
-    sb_slot = st.empty()
-main_slot_outer = st.empty()
+view_tag = "chat" if view == NAV_CHAT else "admin"
+inactive_tag = "admin" if view == NAV_CHAT else "chat"
 
-sidebar_view = sb_slot.container()
-main_view = main_slot_outer.container()
+with st.sidebar:
+    sidebar_view = st.container(key=f"view_sb_{view_tag}")
+main_view = st.container(key=f"view_main_{view_tag}")
 
 if view == NAV_ADMIN:
     st.markdown(
@@ -1112,53 +1115,39 @@ if view == NAV_ADMIN:
         unsafe_allow_html=True,
     )
 
-prev_view = st.session_state.get("_prev_view")
-view_changed = prev_view is not None and prev_view != view
-st.session_state["_prev_view"] = view
-
-if view_changed:
-    # Targets the chart and lottie-player iframe wrappers from the
-    # prior view. The selector list is permissive — anything that
-    # was rendered by the inactive view tree gets removed once the
-    # active view tree mounts. Runs after a 100ms tick so we don't
-    # race the just-mounted active subtree.
-    components.html(
-        """<script>
-        setTimeout(() => {
-          try {
-            const root = window.parent.document;
-            const stale = root.querySelectorAll(
-              '[data-testid="stVegaLiteChart"],'
-              + '[data-testid="stPlotlyChart"],'
-              + '[data-testid="stArrowVegaLiteChart"]'
-            );
-            // Drop any chart whose ancestors are not under the
-            // currently active view's container. The active view
-            // mounted fresh, so stale charts are the ones whose
-            // own iframe component lingered.
-            stale.forEach(c => {
-              const iframe = c.querySelector('iframe');
-              if (!iframe) return;
-              // Heuristic: if the chart container has zero offsetHeight
-              // OR is detached from its expected slot, remove it.
-              if (!c.isConnected || c.offsetHeight === 0) {
-                c.remove();
-              }
-            });
-            // Lottie player ghost: any orphaned lottie-player iframe
-            // not currently inside the empty_state_block wrapper.
-            const lottieIframes = root.querySelectorAll(
-              'iframe[srcdoc*="lottie-player"]'
-            );
-            lottieIframes.forEach(f => {
-              const wrap = f.closest('[class*="st-key-empty_state_block_on"]');
-              if (!wrap) f.remove();
-            });
-          } catch (e) {}
-        }, 100);
-        </script>""",
-        height=0,
-    )
+components.html(
+    f"""<script>
+    setTimeout(() => {{
+      try {{
+        const root = window.parent.document;
+        const inactiveClasses = [
+          'st-key-view_sb_{inactive_tag}',
+          'st-key-view_main_{inactive_tag}',
+        ];
+        inactiveClasses.forEach(cls => {{
+          let nodes;
+          try {{ nodes = root.querySelectorAll('[class*="' + cls + '"]'); }}
+          catch (e) {{ return; }}
+          nodes.forEach(el => {{
+            try {{
+              if (el && el.parentNode) {{
+                el.parentNode.removeChild(el);
+              }}
+            }} catch (e) {{}}
+          }});
+        }});
+        // Hide Vega's built-in actions menu (View Source / View
+        // compiled Vega / Open in Vega editor) on every chart.
+        try {{
+          root.querySelectorAll('.vega-actions, details.vega-actions, summary[aria-label*="View"], .vega-embed details').forEach(el => {{
+            try {{ el.style.display = 'none'; }} catch (e) {{}}
+          }});
+        }} catch (e) {{}}
+      }} catch (e) {{}}
+    }}, 60);
+    </script>""",
+    height=0,
+)
 
 if view == NAV_CHAT:
     render_chat(sidebar_view, main_view)
