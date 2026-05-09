@@ -64,7 +64,7 @@ def _api_headers(): return {"X-API-Key": API_KEY} if API_KEY else {}
 # ══════════════════════════════════════════════
 # Page setup
 # ══════════════════════════════════════════════
-st.set_page_config(page_title="ChatSolveAI", page_icon="🤖", layout="wide",
+st.set_page_config(page_title="ChatSolveAI", page_icon="logo/Logo.png", layout="wide",
                    initial_sidebar_state="expanded")
 
 # ══════════════════════════════════════════════
@@ -172,6 +172,8 @@ a:hover{color:var(--accent)}
 [data-testid='stAppViewContainer']{position:relative;isolation:isolate;background:#0E1117}
 [data-testid='stAppViewContainer']::before{content:'';position:fixed;inset:0;z-index:-1;pointer-events:none;background:radial-gradient(circle at 18% 20%,rgba(79,139,249,.10) 0%,transparent 45%),radial-gradient(circle at 82% 25%,rgba(142,107,255,.08) 0%,transparent 50%),radial-gradient(circle at 30% 85%,rgba(30,41,59,.55) 0%,transparent 55%),radial-gradient(circle at 75% 75%,rgba(79,139,249,.06) 0%,transparent 50%),linear-gradient(180deg,#0E1117 0%,#161A23 60%,#1E293B 100%);background-size:220% 220%,220% 220%,220% 220%,220% 220%,100% 100%;background-position:0% 0%,100% 0%,0% 100%,100% 100%,0 0;animation:meshFlow 28s ease-in-out infinite}
 @keyframes meshFlow{0%,100%{background-position:0% 0%,100% 0%,0% 100%,100% 100%,0 0}50%{background-position:100% 50%,0% 50%,100% 0%,0% 100%,0 0}}
+[data-testid='StyledFullScreenButton'],[data-testid='stFullScreenButton'],[data-testid='stElementToolbar'],[data-testid='stHeaderActionElements']{display:none!important}
+.stMarkdown h1 a,.stMarkdown h2 a,.stMarkdown h3 a,.stMarkdown h4 a,.drill-section h3 a,h1 .anchor-link,h2 .anchor-link,h3 .anchor-link{display:none!important}
 [data-testid='stSidebar']{background:rgba(20,24,32,.65)!important;backdrop-filter:blur(14px) saturate(140%);-webkit-backdrop-filter:blur(14px) saturate(140%);border-right:1px solid rgba(255,255,255,.06)}
 [data-testid='stSidebar'] > div{background:transparent!important}
 [data-testid='stSidebar'][aria-expanded='false']{overflow:hidden!important;width:0!important;min-width:0!important;border-right:none!important}
@@ -226,7 +228,7 @@ def _adopt_url_session():
     st.session_state["pending_append_user"] = True
 
 USER_AVATAR = "🧑"
-ASSISTANT_AVATAR = "🤖"
+ASSISTANT_AVATAR = "logo/Logo.png"
 INTENT_META = {
     "billing":{"label":"Billing","emoji":"💳"},"account":{"label":"Account","emoji":"🔐"},
     "shipping":{"label":"Shipping","emoji":"📦"},"technical":{"label":"Technical","emoji":"🛠️"},
@@ -553,29 +555,6 @@ def render_chat(sidebar_slot, main_slot):
                 unsafe_allow_html=True,
             )
 
-        # Session Intelligence: aggregated per-conversation stats. Only
-        # renders once we have at least one completed user+assistant
-        # round; the sidebar starts compact and grows as the chat builds.
-        msgs_now = st.session_state.messages
-        assistant_metas = [
-            m["meta"] for m in msgs_now
-            if m["role"] == "assistant" and m.get("meta")
-        ]
-        if assistant_metas:
-            user_count = sum(1 for m in msgs_now if m["role"] == "user")
-            avg_conf = sum(float(x.get("confidence", 0)) for x in assistant_metas) / len(assistant_metas)
-            st.markdown('<div class="session-stats">', unsafe_allow_html=True)
-            st.markdown(
-                '<div class="session-stats__title">Session Intelligence</div>',
-                unsafe_allow_html=True,
-            )
-            c1, c2 = st.columns(2)
-            with c1:
-                st.metric("Messages", user_count)
-            with c2:
-                st.metric("Avg confidence", f"{avg_conf*100:.0f}%")
-            st.markdown('</div>', unsafe_allow_html=True)
-
         st.divider()
         if st.button("🗑 New chat", key="btn_new_chat", use_container_width=True):
             _perform_full_reset()
@@ -679,7 +658,7 @@ def render_chat(sidebar_slot, main_slot):
                 greet_cls = "page-entry-3" if is_first_render else ""
                 st.markdown(
                     f'<div class="{greet_cls}"><strong>'
-                    f'👋 What do you need help with?</strong></div>',
+                    f'What do you need help with?</strong></div>',
                     unsafe_allow_html=True,
                 )
 
@@ -965,7 +944,13 @@ def render_chat(sidebar_slot, main_slot):
                     height=44,
                 )
         else:
-            copy_slot.empty()
+            # Render an empty 0-height iframe in place of the copy button.
+            # `slot.empty()` alone left the prior iframe component mounted
+            # on Streamlit Cloud, so the copy button persisted on the
+            # landing screen after a New chat reset. Replacing the iframe
+            # with a fresh empty one forces the old DOM out cleanly.
+            with copy_slot.container():
+                components.html("", height=0)
 
         if prompt := st.chat_input("Ask about orders, billing, account, or technical issues…"):
             if not healthy:
@@ -1009,74 +994,81 @@ def render_admin(sidebar_slot, main_slot):
             return
 
         st.title("ChatSolveAI Admin Dashboard")
+
+        # KPI row 1: high-level counts
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Sessions", summary.get("total_sessions", 0))
         c2.metric("Queries", summary.get("total_queries", 0))
         c3.metric("Today", summary.get("queries_today", 0))
         c4.metric("Avg Session Length", summary.get("avg_session_length", 0))
+
+        # KPI row 2: latency + feedback
         f1, f2, f3 = st.columns(3)
         f1.metric("P95 Latency", f"{latency.get('p95', 0)} ms")
         f2.metric("👍 Upvotes", feedback.get("up", 0))
         f3.metric("👎 Downvotes", feedback.get("down", 0))
+
         st.divider()
-        left, right = st.columns(2)
+
+        # Chart grid: 60/40 split, fixed chart height to keep the row
+        # proportionate on large monitors. use_container_width is the
+        # default for st.bar_chart but we pass height explicitly.
+        left, right = st.columns([6, 4])
         with left:
-            st.subheader("Daily Queries")
-            # Guard against all-zero counts: Vega emits 'Infinite extent'
-            # warnings when every count value is 0 because it can't compute
-            # a non-degenerate scale. Only render the chart if at least one
-            # row has a non-zero count.
+            st.subheader("Support Volume")
             if timeseries and any(r.get("count", 0) > 0 for r in timeseries):
-                st.bar_chart(timeseries, x="date", y="count")
+                st.bar_chart(timeseries, x="date", y="count", height=350)
             else:
                 st.info("No data yet.")
         with right:
-            st.subheader("Intent Distribution")
+            st.subheader("Category Breakdown")
             if intents and any(r.get("count", 0) > 0 for r in intents):
-                st.bar_chart(intents, x="intent", y="count")
+                st.bar_chart(intents, x="intent", y="count", height=350)
             else:
                 st.info("No data yet.")
+
         st.divider()
+
+        # Data tables: full width, height-clamped so they don't push
+        # the page footer below the fold on large monitors.
         tab1, tab2 = st.tabs(["Top Questions", "Recent Sessions"])
         with tab1:
             top = summary.get("top_questions", [])
-            if top: st.dataframe(top, use_container_width=True, hide_index=True)
-            else: st.info("No questions logged.")
+            if top:
+                st.dataframe(top, use_container_width=True, hide_index=True, height=320)
+            else:
+                st.info("No questions logged.")
         with tab2:
-            if sessions: st.dataframe(sessions, use_container_width=True, hide_index=True)
-            else: st.info("No sessions.")
+            if sessions:
+                st.dataframe(sessions, use_container_width=True, hide_index=True, height=320)
+            else:
+                st.info("No sessions.")
         st.caption(f"Last refreshed: {datetime.utcnow():%Y-%m-%d %H:%M UTC}")
 
 # ══════════════════════════════════════════════
 # Dispatch
 # ──────────────────────────────────────────────
-# Strategy: ALWAYS create both views' containers with stable keys, but
-# only fill the active one. Stable keys mean the container element
-# identity is preserved across reruns; when the inactive container has
-# no children in the new run, Streamlit reconciles its prior children
-# away (old charts / tabs / etc. are removed).
-#
-# CSS hide on the inactive container is a visual fallback. st.chat_input
-# docks to the body so we also hide it via testid when on admin.
+# Render only the active view. The earlier strategy created both
+# views' containers every run and hid the inactive one with CSS, but
+# Streamlit Cloud retained the hidden view's iframe components
+# (charts, st_lottie, copy-button) in the DOM, so switching views
+# left ghost overlays from the prior view. Letting the script omit
+# the inactive view altogether lets Streamlit's reconciler unmount
+# its tree cleanly.
 # ══════════════════════════════════════════════
 with st.sidebar:
-    chat_sb_ctx  = st.container(key="sb_chat")
-    admin_sb_ctx = st.container(key="sb_admin")
-chat_main_ctx  = st.container(key="main_chat")
-admin_main_ctx = st.container(key="main_admin")
+    sidebar_slot = st.container(key=f"sb_{'chat' if view == NAV_CHAT else 'admin'}")
+main_slot = st.container(key=f"main_{'chat' if view == NAV_CHAT else 'admin'}")
 
-_inactive = "admin" if view == NAV_CHAT else "chat"
-_extra = "[data-testid='stChatInput']{display:none !important;}" if view == NAV_ADMIN else ""
-st.markdown(
-    f"<style>"
-    f"[class*='st-key-sb_{_inactive}'],"
-    f"[class*='st-key-main_{_inactive}']{{display:none !important;}}"
-    f"{_extra}"
-    f"</style>",
-    unsafe_allow_html=True,
-)
+if view == NAV_ADMIN:
+    # st.chat_input docks to the body, not main_slot, so it survives
+    # the view switch unless explicitly hidden.
+    st.markdown(
+        "<style>[data-testid='stChatInput']{display:none !important;}</style>",
+        unsafe_allow_html=True,
+    )
 
 if view == NAV_CHAT:
-    render_chat(chat_sb_ctx, chat_main_ctx)
+    render_chat(sidebar_slot, main_slot)
 else:
-    render_admin(admin_sb_ctx, admin_main_ctx)
+    render_admin(sidebar_slot, main_slot)
