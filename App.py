@@ -672,11 +672,12 @@ def render_chat(sidebar_slot, main_slot):
             )
         # Always-present empty-state centering rules + always-present
         # state-conditional rules. Single emission, fixed position.
+        # Match both empty_state_block_on and _off keys (state-varying
+        # container key forces remount on toggle).
         st.markdown(
             "<style>"
-            ".st-key-empty_state_block{display:flex;"
-            "flex-direction:column;align-items:center;width:100%}"
-            ".st-key-empty_state_block iframe{max-width:520px;width:100%!important}"
+            "[class*='st-key-empty_state_block_'] iframe{"
+            "display:block;margin:0 auto;max-width:360px;width:100%!important}"
             f"{focus_css}"
             f"{pending_css}"
             "</style>",
@@ -714,12 +715,18 @@ def render_chat(sidebar_slot, main_slot):
                               args=(i, conv))
 
         # Empty-state Lottie illustration: only renders on the landing
-        # state (no chat yet, no topic selected). Wrapper stays mounted
-        # at a fixed script position; inner content swaps. CSS centering
-        # for the wrapper is consolidated into the single style block
-        # above so this block adds no extra script-position elements.
+        # state. State-varying container key (`_on` / `_off`) forces a
+        # full widget remount when empty_state flips. Streamlit Cloud
+        # retains custom-component iframes (st_lottie) under positional-
+        # ID match even when the script body skips them on a rerun,
+        # leaving a ghost Lottie visible while a category is selected.
+        # Switching the key value invalidates the prior widget identity
+        # so the reconciler unmounts the old iframe before mounting the
+        # new (or skipped) state. The wrapper still sits at a fixed
+        # script position above the drill block.
         empty_state = (not msgs) and (selected is None) and (not has_pending)
-        with st.container(key="empty_state_block"):
+        empty_key = "empty_state_block_on" if empty_state else "empty_state_block_off"
+        with st.container(key=empty_key):
             if empty_state and _HAS_LOTTIE:
                 try:
                     lottie_path = os.path.join(
@@ -727,28 +734,38 @@ def render_chat(sidebar_slot, main_slot):
                         "logo", "empty_state.json",
                     )
                     anim = _lottie_data(lottie_path)
-                    st_lottie(
-                        anim,
-                        height=220,
-                        loop=True,
-                        quality="high",
-                        speed=1.0,
-                        key="empty_state_lottie",
-                    )
-                    st.markdown(
-                        "<div style='text-align:center;color:#7a8190;"
-                        "font-size:.85rem;margin-top:-10px'>"
-                        "Pick a category above or type a question below to get started"
-                        "</div>",
-                        unsafe_allow_html=True,
-                    )
+                    # Three-column wrap centers the Lottie below the
+                    # icon row. Safe now that the surrounding script
+                    # positions are stable — no positional-aliasing
+                    # against the icon-row st.columns(4) above.
+                    c1, c2, c3 = st.columns([1, 2, 1])
+                    with c2:
+                        st_lottie(
+                            anim,
+                            height=220,
+                            loop=True,
+                            quality="high",
+                            speed=1.0,
+                            key="empty_state_lottie",
+                        )
+                        st.markdown(
+                            "<div style='text-align:center;color:#7a8190;"
+                            "font-size:.85rem;margin-top:-10px'>"
+                            "Pick a category above or type a question below to get started"
+                            "</div>",
+                            unsafe_allow_html=True,
+                        )
                 except Exception:
                     pass
 
-        # Drill block lives inside its own keyed container so that
-        # toggling `selected` on/off flips the contents in-place
-        # without shifting sibling indices for the reconciler.
-        with st.container(key="drill_block"):
+        # Drill block: state-varying key forces full unmount when the
+        # selected category changes or toggles off. Without this, chip
+        # widgets from the prior category linger in DOM as ghosts on
+        # Streamlit Cloud (same positional-ID retention issue as above).
+        drill_key = (
+            f"drill_block_{selected}" if selected is not None else "drill_block_off"
+        )
+        with st.container(key=drill_key):
             if selected is not None:
                 _icon, sel_name, sel_questions = TOPIC_CATEGORIES[selected]
                 remaining = [(j, q) for j, q in enumerate(sel_questions) if q not in asked]
