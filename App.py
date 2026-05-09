@@ -805,72 +805,76 @@ def render_chat(sidebar_slot, main_slot):
         else:
             drill_slot.empty()
 
+        # Chat-history slot. `st.empty()` ensures that when New chat
+        # clears the message list, the prior chat_message bubbles and
+        # any embedded iframe components (typing dots, sources)
+        # unmount cleanly. Without the slot, Streamlit Cloud retained
+        # the chat-history subtree across the reset, surfacing as
+        # ghost messages on the landing screen.
+        chat_slot = st.empty()
         if msgs or has_pending:
-            with st.container(height=520):
-                for idx, msg in enumerate(msgs):
-                    avatar = USER_AVATAR if msg["role"] == "user" else ASSISTANT_AVATAR
-                    role_short = "user" if msg["role"] == "user" else "asst"
-                    # Keyed wrapper container so the role ('user' / 'asst')
-                    # ends up in the wrapper's CSS class (st-key-chatmsg-...);
-                    # the global stylesheet uses that to apply per-role
-                    # bubble background, border, and slide-in direction.
-                    with st.container(key=f"chatmsg-{role_short}-{conv}-{idx}"):
-                        with st.chat_message(msg["role"], avatar=avatar):
-                            st.markdown(msg["content"])
-                            if msg["role"] == "assistant":
-                                render_meta(msg.get("meta", {}))
-                                render_sources(msg.get("sources", []))
-                                fb = f"fb_{conv}_{idx}"
-                                if st.session_state.get(fb) is None:
-                                    c1, c2, _ = st.columns([1, 1, 8])
-                                    with c1:
-                                        if st.button("👍", key=f"up_{conv}_{idx}"):
-                                            _record_feedback(idx, "up"); st.rerun()
-                                    with c2:
-                                        if st.button("👎", key=f"down_{conv}_{idx}"):
-                                            _record_feedback(idx, "down"); st.rerun()
-                                else:
-                                    rating = st.session_state[fb]
-                                    st.caption(f"You rated: {'👍' if rating == 'up' else '👎'}")
-                                    if rating == "down" and st.button("Regenerate", key=f"regen_{conv}_{idx}"):
-                                        _queue_regenerate(idx); del st.session_state[fb]; st.rerun()
+            with chat_slot.container():
+                with st.container(height=520):
+                    for idx, msg in enumerate(msgs):
+                        avatar = USER_AVATAR if msg["role"] == "user" else ASSISTANT_AVATAR
+                        role_short = "user" if msg["role"] == "user" else "asst"
+                        with st.container(key=f"chatmsg-{role_short}-{conv}-{idx}"):
+                            with st.chat_message(msg["role"], avatar=avatar):
+                                st.markdown(msg["content"])
+                                if msg["role"] == "assistant":
+                                    render_meta(msg.get("meta", {}))
+                                    render_sources(msg.get("sources", []))
+                                    fb = f"fb_{conv}_{idx}"
+                                    if st.session_state.get(fb) is None:
+                                        c1, c2, _ = st.columns([1, 1, 8])
+                                        with c1:
+                                            if st.button("👍", key=f"up_{conv}_{idx}"):
+                                                _record_feedback(idx, "up"); st.rerun()
+                                        with c2:
+                                            if st.button("👎", key=f"down_{conv}_{idx}"):
+                                                _record_feedback(idx, "down"); st.rerun()
+                                    else:
+                                        rating = st.session_state[fb]
+                                        st.caption(f"You rated: {'👍' if rating == 'up' else '👎'}")
+                                        if rating == "down" and st.button("Regenerate", key=f"regen_{conv}_{idx}"):
+                                            _queue_regenerate(idx); del st.session_state[fb]; st.rerun()
 
-                if has_pending:
-                    if healthy:
-                        q = st.session_state.pending_query
-                        append = st.session_state.get("pending_append_user", True)
-                        st.session_state.pending_query = None
-                        st.session_state.pending_append_user = True
-                        if submit_query(q, append_user=append):
-                            st.rerun()
-                    else:
-                        st.warning("Backend cold‑starting … try again in ~30s.")
-                        st.session_state.pending_query = None
+                    if has_pending:
+                        if healthy:
+                            q = st.session_state.pending_query
+                            append = st.session_state.get("pending_append_user", True)
+                            st.session_state.pending_query = None
+                            st.session_state.pending_append_user = True
+                            if submit_query(q, append_user=append):
+                                st.rerun()
+                        else:
+                            st.warning("Backend cold‑starting … try again in ~30s.")
+                            st.session_state.pending_query = None
 
-            # Auto-scroll the chat container to the newest message after
-            # any rerun that has chat content. Runs in a 0-height iframe;
-            # accesses the parent Streamlit document via window.parent and
-            # smooth-scrolls every scrollable vertical block to its bottom.
-            # No-op if Streamlit Cloud's iframe sandbox blocks parent
-            # access — in that case it just doesn't scroll, no error.
-            components.html(
-                """<script>
-                setTimeout(() => {
-                  try {
-                    const root = window.parent.document;
-                    const blocks = root.querySelectorAll(
-                      '[data-testid="stVerticalBlockBorderWrapper"]'
-                    );
-                    blocks.forEach(b => {
-                      if (b.scrollHeight > b.clientHeight) {
-                        b.scrollTo({ top: b.scrollHeight, behavior: 'smooth' });
-                      }
-                    });
-                  } catch (e) {}
-                }, 120);
-                </script>""",
-                height=0,
-            )
+                components.html(
+                    """<script>
+                    setTimeout(() => {
+                      try {
+                        const root = window.parent.document;
+                        const blocks = root.querySelectorAll(
+                          '[data-testid="stVerticalBlockBorderWrapper"]'
+                        );
+                        blocks.forEach(b => {
+                          if (b.scrollHeight > b.clientHeight) {
+                            b.scrollTo({ top: b.scrollHeight, behavior: 'smooth' });
+                          }
+                        });
+                      } catch (e) {}
+                    }, 120);
+                    </script>""",
+                    height=0,
+                )
+        else:
+            # Force iframe-DOM replacement to flush any prior chat
+            # subtree on Streamlit Cloud (slot.empty() alone left
+            # message bubbles ghosting after a New chat reset).
+            with chat_slot.container():
+                components.html("", height=0)
 
         # Copy-last-answer button. Renders only when the most recent
         # message is from the assistant. Wrapped in an st.empty() slot
@@ -1010,20 +1014,32 @@ def render_admin(sidebar_slot, main_slot):
 
         st.divider()
 
-        # Chart grid: 60/40 split, fixed chart height to keep the row
-        # proportionate on large monitors. use_container_width is the
-        # default for st.bar_chart but we pass height explicitly.
+        # Chart grid: 60/40 split. Line chart for the time series so the
+        # daily trend is legible at a glance; altair donut for the
+        # category mix so the narrower right column doesn't squash a
+        # full-width bar chart. Both clamped to 350px height.
+        import altair as alt
         left, right = st.columns([6, 4])
         with left:
             st.subheader("Support Volume")
             if timeseries and any(r.get("count", 0) > 0 for r in timeseries):
-                st.bar_chart(timeseries, x="date", y="count", height=350)
+                st.line_chart(timeseries, x="date", y="count", height=350)
             else:
                 st.info("No data yet.")
         with right:
             st.subheader("Category Breakdown")
             if intents and any(r.get("count", 0) > 0 for r in intents):
-                st.bar_chart(intents, x="intent", y="count", height=350)
+                donut = (
+                    alt.Chart(alt.Data(values=intents))
+                    .mark_arc(innerRadius=60, stroke="#0f1218", strokeWidth=2)
+                    .encode(
+                        theta=alt.Theta("count:Q"),
+                        color=alt.Color("intent:N", legend=alt.Legend(title=None)),
+                        tooltip=["intent:N", "count:Q"],
+                    )
+                    .properties(height=350)
+                )
+                st.altair_chart(donut, use_container_width=True)
             else:
                 st.info("No data yet.")
 
@@ -1048,20 +1064,21 @@ def render_admin(sidebar_slot, main_slot):
 # ══════════════════════════════════════════════
 # Dispatch
 # ──────────────────────────────────────────────
-# Render only the active view. The earlier strategy created both
-# views' containers every run and hid the inactive one with CSS, but
-# Streamlit Cloud retained the hidden view's iframe components
-# (charts, st_lottie, copy-button) in the DOM, so switching views
-# left ghost overlays from the prior view. Letting the script omit
-# the inactive view altogether lets Streamlit's reconciler unmount
-# its tree cleanly.
+# st.empty() slot pattern for the entire view. Each view switch
+# replaces the slot's container, which forces Streamlit's reconciler
+# to unmount the prior view's subtree — including chart iframes,
+# lottie players, and other components that Streamlit Cloud had
+# been retaining across the earlier keyed-container dispatch.
 # ══════════════════════════════════════════════
 with st.sidebar:
-    sidebar_slot = st.container(key=f"sb_{'chat' if view == NAV_CHAT else 'admin'}")
-main_slot = st.container(key=f"main_{'chat' if view == NAV_CHAT else 'admin'}")
+    sb_slot = st.empty()
+main_slot_outer = st.empty()
+
+sidebar_view = sb_slot.container()
+main_view = main_slot_outer.container()
 
 if view == NAV_ADMIN:
-    # st.chat_input docks to the body, not main_slot, so it survives
+    # st.chat_input docks to the body, not main_view, so it survives
     # the view switch unless explicitly hidden.
     st.markdown(
         "<style>[data-testid='stChatInput']{display:none !important;}</style>",
@@ -1069,6 +1086,6 @@ if view == NAV_ADMIN:
     )
 
 if view == NAV_CHAT:
-    render_chat(sidebar_slot, main_slot)
+    render_chat(sidebar_view, main_view)
 else:
-    render_admin(sidebar_slot, main_slot)
+    render_admin(sidebar_view, main_view)
