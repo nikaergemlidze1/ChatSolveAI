@@ -94,28 +94,22 @@ body{font-weight:400}
 .src-card.top{border-left-color:#66bb6a;background:rgba(102,187,106,.08)}
 .src-card.top:hover{border-left-color:#81c784;box-shadow:0 6px 16px rgba(102,187,106,.18);background:rgba(102,187,106,.14)}
 .src-meta{font-size:.68rem;color:#7a8190;margin-top:4px}
-[class*='st-key-chipwrap_']{max-width:800px;width:100%;margin-left:auto!important;margin-right:auto!important;transform-origin:center;animation:slideUpFade .7s cubic-bezier(.22,1.6,.36,1) both;animation-delay:.10s}
+[class*='st-key-chipwrap_']{max-width:800px;width:100%;margin-left:auto!important;margin-right:auto!important;transform-origin:center;opacity:0}
 [class*='st-key-chipwrap_'] button{width:100%!important;background:rgba(255,255,255,.03)!important;border:1px solid rgba(255,255,255,.08)!important;color:#D1D5DB!important;font-weight:500!important;text-align:left!important;padding:12px 38px 12px 16px!important;border-radius:12px!important;box-shadow:inset 4px 0 0 transparent!important;position:relative!important;transition:background-color .2s ease-in-out,border-color .2s ease-in-out,box-shadow .2s ease-in-out,transform .15s ease-in-out,color .2s ease-in-out!important}
 [class*='st-key-chipwrap_'] button::after{content:'→';position:absolute;right:16px;top:50%;transform:translateY(-50%) translateX(0);color:rgba(255,255,255,.35);font-size:1rem;font-weight:500;transition:color .2s ease-in-out,transform .25s cubic-bezier(.16,1,.3,1);pointer-events:none}
 [class*='st-key-chipwrap_'] button:hover{background:rgba(255,255,255,.06)!important;border-color:rgba(79,139,249,.30)!important;color:#E5E7EB!important;box-shadow:inset 4px 0 0 #4F8BF9,0 4px 14px rgba(0,0,0,.18)!important;transform:translateX(5px)!important}
 [class*='st-key-chipwrap_'] button:hover::after{color:var(--accent);transform:translateY(-50%) translateX(4px)}
 [class*='st-key-chipwrap_'] button:active{transform:translateX(3px) scale(.99)!important}
-[class*='st-key-chipwrap_pos1_']{animation-delay:.10s;animation-duration:.70s}
-[class*='st-key-chipwrap_pos2_']{animation-name:slideUpFadeRight;animation-delay:.28s;animation-duration:.60s}
-[class*='st-key-chipwrap_pos3_']{animation-delay:.46s;animation-duration:.80s}
-[class*='st-key-chipwrap_pos4_']{animation-name:slideUpFadeRight;animation-delay:.64s;animation-duration:.55s}
-[class*='st-key-chipwrap_pos5_']{animation-delay:.78s;animation-duration:.70s}
-[class*='st-key-chipwrap_pos6_']{animation-name:slideUpFadeRight;animation-delay:.92s;animation-duration:.60s}
 [class*='st-key-iconbtn_'] button{transition:transform .4s cubic-bezier(.16,1,.3,1),opacity .4s cubic-bezier(.16,1,.3,1),box-shadow .3s cubic-bezier(.16,1,.3,1),background-color .2s ease-in-out,border-color .2s ease-in-out!important}
 [class*='st-key-iconbtn_'] button:hover{transform:translateY(-2px)}
 [data-testid='stButton'] button,[data-testid='stDownloadButton'] button{transition:background-color .15s ease,border-color .15s ease,transform .12s ease,box-shadow .15s ease!important}
 [class*='st-key-btn_new_chat'] button:hover,[data-testid='stDownloadButton'] button:hover,[class*='st-key-up_'] button:hover,[class*='st-key-down_'] button:hover,[class*='st-key-regen_'] button:hover,[class*='st-key-admin_signout'] button:hover{transform:translateY(-1px) scale(1.02);box-shadow:0 4px 12px rgba(79,139,249,.18);border-color:#4F8BF9!important}
 [class*='st-key-btn_new_chat'] button:active,[data-testid='stDownloadButton'] button:active,[class*='st-key-up_'] button:active,[class*='st-key-down_'] button:active,[class*='st-key-regen_'] button:active{transform:translateY(0) scale(.98)}
-[data-testid='stChatInput'] textarea,[data-baseweb='input'] input{transition:border-color .15s ease,box-shadow .15s ease!important}
-[data-testid='stChatInput']:focus-within,[data-baseweb='input']:focus-within{box-shadow:0 0 0 2px rgba(79,139,249,.32)!important;border-color:#4F8BF9!important;border-radius:14px!important}
+[data-testid='stChatInput'] textarea,[data-baseweb='input'] input{transition:all .3s ease!important}
+[data-testid='stChatInput']:focus-within,[data-baseweb='input']:focus-within{box-shadow:0 0 15px rgba(79,139,249,.20)!important;border-color:#4F8BF9!important;border-radius:14px!important}
 [data-testid='stChatInput'] textarea:focus,[data-baseweb='input'] input:focus{outline:none!important}
 [data-testid='stMain'] .block-container{max-width:1100px!important;margin-left:auto!important;margin-right:auto!important}
-[data-testid='stChatInput']{border-radius:14px!important;border:1px solid rgba(255,255,255,.08)!important;background:rgba(22,26,35,.85)!important;transition:border-color .2s ease,box-shadow .2s ease!important;backdrop-filter:saturate(140%)}
+[data-testid='stChatInput']{border-radius:14px!important;border:1px solid rgba(255,255,255,.08)!important;background:rgba(28,34,46,.92)!important;transition:all .3s ease!important;backdrop-filter:saturate(140%)}
 [data-testid='stChatInput'] textarea::placeholder{color:#6b7280!important;opacity:.85!important}
 [data-testid='stChatInput'] button{border-radius:10px!important;transition:background-color .15s ease,transform .12s ease!important}
 [data-testid='stChatInput'] button:hover{background:rgba(79,139,249,.22)!important;transform:translateY(-1px)}
@@ -535,7 +529,6 @@ def render_chat(sidebar_slot, main_slot):
     with sidebar_slot:
         st.image("logo/Logo.png", width=256)
         st.title("ChatSolveAI")
-        st.caption("LangChain · FAISS · GPT‑3.5‑turbo\nMongoDB · FastAPI · Docker · HF Spaces")
         st.divider()
         healthy = api_health()
         # Custom status indicator: pulsing green dot when the backend
@@ -571,7 +564,6 @@ def render_chat(sidebar_slot, main_slot):
         if assistant_metas:
             user_count = sum(1 for m in msgs_now if m["role"] == "user")
             avg_conf = sum(float(x.get("confidence", 0)) for x in assistant_metas) / len(assistant_metas)
-            avg_lat_ms = sum(float(x.get("latency_ms", 0)) for x in assistant_metas) / len(assistant_metas)
             st.markdown('<div class="session-stats">', unsafe_allow_html=True)
             st.markdown(
                 '<div class="session-stats__title">Session Intelligence</div>',
@@ -582,13 +574,8 @@ def render_chat(sidebar_slot, main_slot):
                 st.metric("Messages", user_count)
             with c2:
                 st.metric("Avg confidence", f"{avg_conf*100:.0f}%")
-            st.metric(
-                "Avg response",
-                f"{avg_lat_ms/1000:.1f} s" if avg_lat_ms >= 1000 else f"{avg_lat_ms:.0f} ms",
-            )
             st.markdown('</div>', unsafe_allow_html=True)
 
-        st.caption(f"Session: `{st.session_state.session_id[:8]}…`")
         st.divider()
         if st.button("🗑 New chat", key="btn_new_chat", use_container_width=True):
             _perform_full_reset()
@@ -735,13 +722,31 @@ def render_chat(sidebar_slot, main_slot):
                     c1, c2, c3 = st.columns([1, 2, 1])
                     with c2:
                         with st.container(key="lottie_wrap"):
-                            st_lottie(
-                                anim,
-                                height=220,
-                                loop=True,
-                                quality="high",
-                                speed=1.0,
-                                key="empty_state_lottie",
+                            # `streamlit_lottie.st_lottie` exposes no
+                            # bg_color / transparency option, and its
+                            # iframe content paints an opaque body.
+                            # Render via the `<lottie-player>` web
+                            # component instead — `background="transparent"`
+                            # is honored, the iframe document body is
+                            # itself transparent, and we keep full
+                            # control over sizing.
+                            anim_json = json.dumps(anim)
+                            components.html(
+                                f"""<!doctype html>
+                                <html><head>
+                                  <script src="https://unpkg.com/@lottiefiles/lottie-player@latest/dist/lottie-player.js"></script>
+                                  <style>
+                                    html,body{{margin:0;padding:0;background:transparent!important}}
+                                    lottie-player{{display:block;margin:0 auto;width:100%;max-width:360px;height:220px;background:transparent!important}}
+                                  </style>
+                                </head><body>
+                                  <lottie-player background="transparent" speed="1" loop autoplay></lottie-player>
+                                  <script>
+                                    const p = document.querySelector('lottie-player');
+                                    p.load({anim_json});
+                                  </script>
+                                </body></html>""",
+                                height=230,
                             )
                         st.markdown(
                             "<div style='text-align:center;color:#7a8190;"
@@ -781,6 +786,27 @@ def render_chat(sidebar_slot, main_slot):
                 MAX_CHIPS = 3
                 chip_slots = [st.empty() for _ in range(MAX_CHIPS)]
                 if remaining:
+                    # Build per-chip animation-delay rules in a single
+                    # <style> tag emitted at a fixed script position
+                    # (inside drill_slot.container, which itself is at
+                    # a stable index above). One emission, no per-chip
+                    # script-position drift. CSS :nth-of-type cannot
+                    # work because Streamlit wraps each chip in its own
+                    # vertical-block container, so chips are not direct
+                    # siblings — keying by wrap_key sidesteps that.
+                    delay_rules = []
+                    for idx, (j, _q) in enumerate(remaining):
+                        wrap_key = f"chipwrap_{conv}_{selected}_{j}_{len(asked)}"
+                        delay = 0.10 + (idx * 0.15)
+                        delay_rules.append(
+                            f".st-key-{wrap_key}{{"
+                            f"animation:slideUpFade .45s cubic-bezier(.22,1,.36,1) {delay:.3f}s both"
+                            f"}}"
+                        )
+                    st.markdown(
+                        f"<style>{''.join(delay_rules)}</style>",
+                        unsafe_allow_html=True,
+                    )
                     for slot, (j, q) in zip(chip_slots, remaining):
                         with slot.container():
                             wrap_key = f"chipwrap_{conv}_{selected}_{j}_{len(asked)}"
@@ -868,74 +894,78 @@ def render_chat(sidebar_slot, main_slot):
             )
 
         # Copy-last-answer button. Renders only when the most recent
-        # message is from the assistant (no point offering it during a
-        # pending stream or right after the user's own message). Single
-        # iframe at the bottom — keeps DOM cost flat regardless of how
-        # long the conversation grows. Success state shows '✓ Copied'
-        # for 1.5 s, then resets.
+        # message is from the assistant. Wrapped in an st.empty() slot
+        # so the iframe component is explicitly removed from DOM when
+        # the condition flips false (no chat yet / New chat reset /
+        # pending stream). Without the explicit clear, Streamlit Cloud
+        # left the prior iframe mounted as a ghost beneath the empty-
+        # state Lottie.
+        copy_slot = st.empty()
         if msgs and msgs[-1]["role"] == "assistant" and not has_pending:
             last_answer = msgs[-1].get("content", "") or ""
             payload = json.dumps(last_answer)
-            components.html(
-                f"""<!doctype html>
-                <html><head><style>
-                  body {{margin:0;padding:0;background:transparent;
-                         font-family:'Inter',-apple-system,system-ui,sans-serif}}
-                  .copy-btn {{
-                    display:inline-flex;align-items:center;gap:6px;
-                    padding:6px 12px;border-radius:10px;
-                    background:rgba(79,139,249,.10);
-                    border:1px solid rgba(79,139,249,.25);
-                    color:#cdd5e0;font-size:.78rem;font-weight:500;
-                    cursor:pointer;
-                    transition:background-color .2s ease-in-out,
-                               border-color .2s ease-in-out,
-                               transform .12s ease-in-out;
-                  }}
-                  .copy-btn:hover {{
-                    background:rgba(79,139,249,.20);
-                    border-color:#4F8BF9;
-                    transform:translateY(-1px);
-                  }}
-                  .copy-btn.copied {{
-                    background:rgba(52,211,153,.18);
-                    border-color:#34d399;color:#a7f3d0;
-                  }}
-                  .copy-btn .icon {{font-size:.95rem;line-height:1}}
-                </style></head>
-                <body>
-                  <button id="cb" class="copy-btn" type="button">
-                    <span class="icon">📋</span><span class="lbl">Copy answer</span>
-                  </button>
-                  <script>
-                    const btn = document.getElementById('cb');
-                    const lbl = btn.querySelector('.lbl');
-                    const icon = btn.querySelector('.icon');
-                    const TEXT = {payload};
-                    btn.addEventListener('click', async () => {{
-                      try {{
-                        await navigator.clipboard.writeText(TEXT);
-                      }} catch (e) {{
-                        // Fallback: textarea + execCommand (older browsers).
-                        const ta = document.createElement('textarea');
-                        ta.value = TEXT; ta.style.position='fixed'; ta.style.opacity='0';
-                        document.body.appendChild(ta); ta.select();
-                        try {{ document.execCommand('copy'); }} catch (_) {{}}
-                        document.body.removeChild(ta);
+            with copy_slot.container():
+                components.html(
+                    f"""<!doctype html>
+                    <html><head><style>
+                      body {{margin:0;padding:0;background:transparent;
+                             font-family:'Inter',-apple-system,system-ui,sans-serif}}
+                      .copy-btn {{
+                        display:inline-flex;align-items:center;gap:6px;
+                        padding:6px 12px;border-radius:10px;
+                        background:rgba(79,139,249,.10);
+                        border:1px solid rgba(79,139,249,.25);
+                        color:#cdd5e0;font-size:.78rem;font-weight:500;
+                        cursor:pointer;
+                        transition:background-color .2s ease-in-out,
+                                   border-color .2s ease-in-out,
+                                   transform .12s ease-in-out;
                       }}
-                      btn.classList.add('copied');
-                      icon.textContent = '✓';
-                      lbl.textContent = 'Copied';
-                      setTimeout(() => {{
-                        btn.classList.remove('copied');
-                        icon.textContent = '📋';
-                        lbl.textContent = 'Copy answer';
-                      }}, 1500);
-                    }});
-                  </script>
-                </body></html>""",
-                height=44,
-            )
+                      .copy-btn:hover {{
+                        background:rgba(79,139,249,.20);
+                        border-color:#4F8BF9;
+                        transform:translateY(-1px);
+                      }}
+                      .copy-btn.copied {{
+                        background:rgba(52,211,153,.18);
+                        border-color:#34d399;color:#a7f3d0;
+                      }}
+                      .copy-btn .icon {{font-size:.95rem;line-height:1}}
+                    </style></head>
+                    <body>
+                      <button id="cb" class="copy-btn" type="button">
+                        <span class="icon">📋</span><span class="lbl">Copy answer</span>
+                      </button>
+                      <script>
+                        const btn = document.getElementById('cb');
+                        const lbl = btn.querySelector('.lbl');
+                        const icon = btn.querySelector('.icon');
+                        const TEXT = {payload};
+                        btn.addEventListener('click', async () => {{
+                          try {{
+                            await navigator.clipboard.writeText(TEXT);
+                          }} catch (e) {{
+                            const ta = document.createElement('textarea');
+                            ta.value = TEXT; ta.style.position='fixed'; ta.style.opacity='0';
+                            document.body.appendChild(ta); ta.select();
+                            try {{ document.execCommand('copy'); }} catch (_) {{}}
+                            document.body.removeChild(ta);
+                          }}
+                          btn.classList.add('copied');
+                          icon.textContent = '✓';
+                          lbl.textContent = 'Copied';
+                          setTimeout(() => {{
+                            btn.classList.remove('copied');
+                            icon.textContent = '📋';
+                            lbl.textContent = 'Copy answer';
+                          }}, 1500);
+                        }});
+                      </script>
+                    </body></html>""",
+                    height=44,
+                )
+        else:
+            copy_slot.empty()
 
         if prompt := st.chat_input("Ask about orders, billing, account, or technical issues…"):
             if not healthy:
