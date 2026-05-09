@@ -381,16 +381,17 @@ def _on_chip_click(q):
 
 def _on_icon_click(i, conv):
     """on_click callback for category icon buttons — toggles selected_topic
-    and purges chip widget state from prior topic. Eliminates the explicit
-    st.rerun() that was costing an extra script execution per click."""
+    and purges chip widget state. Cleared on every transition (toggle-off
+    OR category switch) so a stale chip key cannot rebind to a new chip
+    widget that happens to occupy the same script position."""
     selected = st.session_state.get("selected_topic")
+    for k in list(st.session_state.keys()):
+        if isinstance(k, str) and k.startswith(f"chip_{conv}_"):
+            del st.session_state[k]
     if selected == i:
         st.session_state.pop("selected_topic", None)
         return
     st.session_state["selected_topic"] = i
-    for k in list(st.session_state.keys()):
-        if isinstance(k, str) and k.startswith(f"chip_{conv}_"):
-            del st.session_state[k]
 
 def _queue_regenerate(idx):
     msgs = st.session_state.messages
@@ -672,11 +673,9 @@ def render_chat(sidebar_slot, main_slot):
             )
         # Always-present empty-state centering rules + always-present
         # state-conditional rules. Single emission, fixed position.
-        # Match both empty_state_block_on and _off keys (state-varying
-        # container key forces remount on toggle).
         st.markdown(
             "<style>"
-            "[class*='st-key-empty_state_block_'] iframe{"
+            ".lottie-center iframe{"
             "display:block;margin:0 auto;max-width:360px;width:100%!important}"
             f"{focus_css}"
             f"{pending_css}"
@@ -714,30 +713,30 @@ def render_chat(sidebar_slot, main_slot):
                               on_click=_on_icon_click,
                               args=(i, conv))
 
-        # Empty-state Lottie illustration: only renders on the landing
-        # state. State-varying container key (`_on` / `_off`) forces a
-        # full widget remount when empty_state flips. Streamlit Cloud
-        # retains custom-component iframes (st_lottie) under positional-
-        # ID match even when the script body skips them on a rerun,
-        # leaving a ghost Lottie visible while a category is selected.
-        # Switching the key value invalidates the prior widget identity
-        # so the reconciler unmounts the old iframe before mounting the
-        # new (or skipped) state. The wrapper still sits at a fixed
-        # script position above the drill block.
+        # Empty-state Lottie + drill section share an `st.empty()` slot
+        # pattern. The slot is the canonical Streamlit primitive for
+        # swapping a single child cleanly: calling `slot.container()`
+        # replaces any prior child; calling `slot.empty()` removes it.
+        # Stable script position; explicit unmount semantics. State-
+        # keyed `st.container(...)` was insufficient on Streamlit Cloud
+        # because component iframes (st_lottie) and chip widgets stayed
+        # mounted past the parent's key change, leaving ghosts.
         empty_state = (not msgs) and (selected is None) and (not has_pending)
-        empty_key = "empty_state_block_on" if empty_state else "empty_state_block_off"
-        with st.container(key=empty_key):
-            if empty_state and _HAS_LOTTIE:
-                try:
-                    lottie_path = os.path.join(
-                        os.path.dirname(os.path.abspath(__file__)),
-                        "logo", "empty_state.json",
+        empty_slot = st.empty()
+        if empty_state and _HAS_LOTTIE:
+            try:
+                lottie_path = os.path.join(
+                    os.path.dirname(os.path.abspath(__file__)),
+                    "logo", "empty_state.json",
+                )
+                anim = _lottie_data(lottie_path)
+                with empty_slot.container():
+                    # Wrapper class drives Lottie iframe centering +
+                    # max-width clamp via the consolidated style block.
+                    st.markdown(
+                        '<div class="lottie-center"></div>',
+                        unsafe_allow_html=True,
                     )
-                    anim = _lottie_data(lottie_path)
-                    # Three-column wrap centers the Lottie below the
-                    # icon row. Safe now that the surrounding script
-                    # positions are stable — no positional-aliasing
-                    # against the icon-row st.columns(4) above.
                     c1, c2, c3 = st.columns([1, 2, 1])
                     with c2:
                         st_lottie(
@@ -755,44 +754,38 @@ def render_chat(sidebar_slot, main_slot):
                             "</div>",
                             unsafe_allow_html=True,
                         )
-                except Exception:
-                    pass
+            except Exception:
+                empty_slot.empty()
+        else:
+            empty_slot.empty()
 
-        # Drill block: state-varying key forces full unmount when the
-        # selected category changes or toggles off. Without this, chip
-        # widgets from the prior category linger in DOM as ghosts on
-        # Streamlit Cloud (same positional-ID retention issue as above).
-        drill_key = (
-            f"drill_block_{selected}" if selected is not None else "drill_block_off"
-        )
-        with st.container(key=drill_key):
-            if selected is not None:
-                _icon, sel_name, sel_questions = TOPIC_CATEGORIES[selected]
-                remaining = [(j, q) for j, q in enumerate(sel_questions) if q not in asked]
-                # Purge asked questions' chip state so Streamlit cannot retain
-                # a stale chip widget after the script stops rendering it.
-                for j, q in enumerate(sel_questions):
-                    if q in asked:
-                        chip_key = f"chip_{conv}_{selected}_{j}"
-                        if chip_key in st.session_state:
-                            del st.session_state[chip_key]
-                # drill-section class drives the max-height + opacity
-                # expansion defined in the global stylesheet.
+        drill_slot = st.empty()
+        if selected is not None:
+            _icon, sel_name, sel_questions = TOPIC_CATEGORIES[selected]
+            remaining = [(j, q) for j, q in enumerate(sel_questions) if q not in asked]
+            for j, q in enumerate(sel_questions):
+                if q in asked:
+                    chip_key = f"chip_{conv}_{selected}_{j}"
+                    if chip_key in st.session_state:
+                        del st.session_state[chip_key]
+            with drill_slot.container():
                 st.markdown(
                     f'<div class="drill-section"><h3>{sel_name}</h3></div>',
                     unsafe_allow_html=True,
                 )
                 if remaining:
                     for chip_pos, (j, q) in enumerate(remaining, start=1):
-                        wrap_key = f"chipwrap_pos{chip_pos}_{conv}_{selected}_{j}"
+                        wrap_key = f"chipwrap_pos{chip_pos}_{conv}_{selected}_{j}_{len(asked)}"
                         with st.container(key=wrap_key):
-                            st.button(q, key=f"chip_{conv}_{selected}_{j}",
+                            st.button(q, key=f"chip_{conv}_{selected}_{j}_{len(asked)}",
                                       use_container_width=True,
                                       disabled=has_pending,
                                       on_click=_on_chip_click,
                                       args=(q,))
                 else:
                     st.caption("All questions in this topic asked.")
+        else:
+            drill_slot.empty()
 
         if msgs or has_pending:
             with st.container(height=520):
