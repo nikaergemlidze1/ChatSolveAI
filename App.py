@@ -762,21 +762,22 @@ def render_chat(sidebar_slot, main_slot):
                 MAX_CHIPS = 3
                 chip_slots = [st.empty() for _ in range(MAX_CHIPS)]
                 if remaining:
-                    # Build per-chip animation-delay rules in a single
-                    # <style> tag emitted at a fixed script position
-                    # (inside drill_slot.container, which itself is at
-                    # a stable index above). One emission, no per-chip
-                    # script-position drift. CSS :nth-of-type cannot
-                    # work because Streamlit wraps each chip in its own
-                    # vertical-block container, so chips are not direct
-                    # siblings — keying by wrap_key sidesteps that.
+                    # Stable chip keys (no asked-count suffix). The
+                    # pre-allocated st.empty() slots already handle
+                    # ghost-chip cleanup, and stable keys mean the
+                    # entry animation fires exactly once per chip
+                    # mount instead of re-firing on every rerun (which
+                    # made the post-answer transition feel like a
+                    # reload). Animation rules emitted once at fixed
+                    # script position above the slots; targets full
+                    # wrap_key with computed delay.
                     delay_rules = []
                     for idx, (j, _q) in enumerate(remaining):
-                        wrap_key = f"chipwrap_{conv}_{selected}_{j}_{len(asked)}"
-                        delay = 0.10 + (idx * 0.15)
+                        wrap_key = f"chipwrap_{conv}_{selected}_{j}"
+                        delay = 0.08 + (idx * 0.10)
                         delay_rules.append(
                             f".st-key-{wrap_key}{{"
-                            f"animation:slideUpFade .45s cubic-bezier(.22,1,.36,1) {delay:.3f}s both"
+                            f"animation:slideUpFade .35s cubic-bezier(.22,1,.36,1) {delay:.3f}s both"
                             f"}}"
                         )
                     st.markdown(
@@ -785,10 +786,10 @@ def render_chat(sidebar_slot, main_slot):
                     )
                     for slot, (j, q) in zip(chip_slots, remaining):
                         with slot.container():
-                            wrap_key = f"chipwrap_{conv}_{selected}_{j}_{len(asked)}"
+                            wrap_key = f"chipwrap_{conv}_{selected}_{j}"
                             with st.container(key=wrap_key):
                                 st.button(q,
-                                          key=f"chip_{conv}_{selected}_{j}_{len(asked)}",
+                                          key=f"chip_{conv}_{selected}_{j}",
                                           use_container_width=True,
                                           disabled=has_pending,
                                           on_click=_on_chip_click,
@@ -1041,15 +1042,32 @@ def render_admin(sidebar_slot, main_slot):
 
             st.divider()
 
-            # Chart grid: 60/40 split. Line for time series, altair
-            # donut for category mix. 320px height keeps the row
-            # compact and avoids excessive scroll on standard monitors.
+            # Chart grid: 65/35 split keeps the line chart breathable
+            # while giving the donut a tight square aspect. Heights
+            # tuned so the entire admin row fits a 1080p viewport
+            # without scroll.
             import altair as alt
-            left, right = st.columns([6, 4], gap="large")
+            left, right = st.columns([65, 35], gap="large")
             with left:
                 st.subheader("Support Volume")
                 if timeseries and any(r.get("count", 0) > 0 for r in timeseries):
-                    st.line_chart(timeseries, x="date", y="count", height=320)
+                    line = (
+                        alt.Chart(alt.Data(values=timeseries))
+                        .mark_line(
+                            point=alt.OverlayMarkDef(filled=True, size=55, color="#4F8BF9"),
+                            color="#4F8BF9",
+                            strokeWidth=2.5,
+                            interpolate="monotone",
+                        )
+                        .encode(
+                            x=alt.X("date:T", title=None, axis=alt.Axis(labelColor="#7a8190", grid=False)),
+                            y=alt.Y("count:Q", title=None, axis=alt.Axis(labelColor="#7a8190", grid=True, gridOpacity=0.15)),
+                            tooltip=["date:T", "count:Q"],
+                        )
+                        .properties(height=280)
+                        .configure_view(strokeWidth=0)
+                    )
+                    st.altair_chart(line, use_container_width=True)
                 else:
                     st.info("No data yet.")
             with right:
@@ -1057,17 +1075,17 @@ def render_admin(sidebar_slot, main_slot):
                 if intents and any(r.get("count", 0) > 0 for r in intents):
                     donut = (
                         alt.Chart(alt.Data(values=intents))
-                        .mark_arc(innerRadius=55, outerRadius=110, stroke="#0f1218", strokeWidth=2)
+                        .mark_arc(innerRadius=50, outerRadius=100, stroke="#0f1218", strokeWidth=2)
                         .encode(
                             theta=alt.Theta("count:Q"),
                             color=alt.Color(
                                 "intent:N",
-                                legend=alt.Legend(title=None, orient="right", labelFontSize=11),
+                                legend=alt.Legend(title=None, orient="bottom", labelFontSize=11, columns=2),
                                 scale=alt.Scale(scheme="tableau10"),
                             ),
                             tooltip=["intent:N", "count:Q"],
                         )
-                        .properties(height=320)
+                        .properties(height=280)
                         .configure_view(strokeWidth=0)
                     )
                     st.altair_chart(donut, use_container_width=True)
@@ -1115,36 +1133,58 @@ if view == NAV_ADMIN:
         unsafe_allow_html=True,
     )
 
+# Two-layer cleanup.
+#
+# Layer 1: img-onerror trick. The handler executes in the parent page
+# context (not a sandboxed iframe), so it can directly query and
+# remove inactive-view DOM without crossing an origin boundary. This
+# is the only path that reliably reaches the parent on Streamlit
+# Cloud — the components.html sandbox sometimes blocks
+# `window.parent.document` access depending on the iframe's
+# `sandbox` attribute.
+#
+# Layer 2: components.html fallback for environments where the
+# img-onerror trick is sanitized away.
+_cleanup_js = (
+    "var classes=['st-key-view_sb_" + inactive_tag + "',"
+    "'st-key-view_main_" + inactive_tag + "'];"
+    "var run=function(){"
+    "try{classes.forEach(function(cls){"
+    "try{document.querySelectorAll('[class*=\"'+cls+'\"]').forEach(function(el){"
+    "try{if(el&&el.parentNode)el.parentNode.removeChild(el);}catch(e){}"
+    "});}catch(e){}"
+    "});"
+    "document.querySelectorAll('.vega-actions,.vega-embed details').forEach(function(el){"
+    "try{el.style.display='none';}catch(e){}});"
+    "}catch(e){}};"
+    "run();setTimeout(run,150);setTimeout(run,400);"
+)
+st.markdown(
+    f'<img src="x" style="display:none" onerror="{_cleanup_js}" alt="" />',
+    unsafe_allow_html=True,
+)
 components.html(
     f"""<script>
-    setTimeout(() => {{
+    function sweep() {{
       try {{
         const root = window.parent.document;
-        const inactiveClasses = [
-          'st-key-view_sb_{inactive_tag}',
-          'st-key-view_main_{inactive_tag}',
-        ];
-        inactiveClasses.forEach(cls => {{
-          let nodes;
-          try {{ nodes = root.querySelectorAll('[class*="' + cls + '"]'); }}
-          catch (e) {{ return; }}
-          nodes.forEach(el => {{
-            try {{
-              if (el && el.parentNode) {{
-                el.parentNode.removeChild(el);
-              }}
-            }} catch (e) {{}}
-          }});
+        ['st-key-view_sb_{inactive_tag}','st-key-view_main_{inactive_tag}'].forEach(cls => {{
+          try {{
+            root.querySelectorAll('[class*="' + cls + '"]').forEach(el => {{
+              try {{ if (el && el.parentNode) el.parentNode.removeChild(el); }} catch (e) {{}}
+            }});
+          }} catch (e) {{}}
         }});
-        // Hide Vega's built-in actions menu (View Source / View
-        // compiled Vega / Open in Vega editor) on every chart.
         try {{
-          root.querySelectorAll('.vega-actions, details.vega-actions, summary[aria-label*="View"], .vega-embed details').forEach(el => {{
+          root.querySelectorAll('.vega-actions, .vega-embed details').forEach(el => {{
             try {{ el.style.display = 'none'; }} catch (e) {{}}
           }});
         }} catch (e) {{}}
       }} catch (e) {{}}
-    }}, 60);
+    }}
+    sweep();
+    setTimeout(sweep, 200);
+    setTimeout(sweep, 500);
     </script>""",
     height=0,
 )
