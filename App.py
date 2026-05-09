@@ -711,6 +711,20 @@ def render_chat(sidebar_slot, main_slot):
         # keyed container so the reconciler treats it as a distinct
         # subtree from the icon row above and the drill below.
         empty_state = (not msgs) and (selected is None) and (not has_pending)
+        # CSS-centered single-column wrapper. The prior `st.columns([1,2,1])`
+        # nested inside this block was aliasing positionally with the icon
+        # row's `st.columns(4)` on Streamlit Cloud's reconciler, leaving
+        # ghost icon DOM in the outer column shells whenever the drill
+        # toggled off. A plain keyed container with flex centering carries
+        # no nested column structure, so nothing for the reconciler to
+        # cross-match.
+        st.markdown(
+            "<style>.st-key-empty_state_block{display:flex;"
+            "flex-direction:column;align-items:center;width:100%}"
+            ".st-key-empty_state_block iframe{max-width:520px;width:100%!important}"
+            "</style>",
+            unsafe_allow_html=True,
+        )
         with st.container(key="empty_state_block"):
             if empty_state and _HAS_LOTTIE:
                 try:
@@ -719,23 +733,21 @@ def render_chat(sidebar_slot, main_slot):
                         "logo", "empty_state.json",
                     )
                     anim = _lottie_data(lottie_path)
-                    cols = st.columns([1, 2, 1])
-                    with cols[1]:
-                        st_lottie(
-                            anim,
-                            height=220,
-                            loop=True,
-                            quality="high",
-                            speed=1.0,
-                            key="empty_state_lottie",
-                        )
-                        st.markdown(
-                            "<div style='text-align:center;color:#7a8190;"
-                            "font-size:.85rem;margin-top:-10px'>"
-                            "Pick a category above or type a question below to get started"
-                            "</div>",
-                            unsafe_allow_html=True,
-                        )
+                    st_lottie(
+                        anim,
+                        height=220,
+                        loop=True,
+                        quality="high",
+                        speed=1.0,
+                        key="empty_state_lottie",
+                    )
+                    st.markdown(
+                        "<div style='text-align:center;color:#7a8190;"
+                        "font-size:.85rem;margin-top:-10px'>"
+                        "Pick a category above or type a question below to get started"
+                        "</div>",
+                        unsafe_allow_html=True,
+                    )
                 except Exception:
                     pass
 
