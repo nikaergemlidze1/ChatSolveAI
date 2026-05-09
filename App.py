@@ -629,44 +629,23 @@ def render_chat(sidebar_slot, main_slot):
         asked = {m["content"] for m in msgs if m["role"] == "user"}
         has_pending = bool(st.session_state.pending_query)
 
-        # Pulse the chat input border while a query is in flight. The
-        # rule is injected only when has_pending is True; on the next
-        # rerun (response complete) the <style> tag is dropped and the
-        # animation stops. CSS-only state cue without JS.
-        if has_pending:
-            st.markdown(
-                "<style>[data-testid='stChatInput']{"
-                "animation:inputPulse 1.4s ease-in-out infinite}</style>",
-                unsafe_allow_html=True,
-            )
-
-        # Greeting renders directly — no st.empty() placeholder. The prior
-        # `st.empty(); .empty(); .markdown(...)` pattern was a no-op clear
-        # (a freshly-created placeholder is already empty) and Streamlit's
-        # reconciler handles "now-absent" elements correctly when the
-        # script simply omits them on a later rerun.
-        if not msgs:
-            greet_cls = "page-entry-3" if is_first_render else ""
-            st.markdown(
-                f'<div class="{greet_cls}"><strong>'
-                f'👋 What do you need help with?</strong></div>',
-                unsafe_allow_html=True,
-            )
-
         selected = st.session_state.get("selected_topic")
 
-        # Tiny per-render CSS only for the selected-icon highlight border.
-        # The bulky icon background-image rules are injected ONCE at
-        # module load (above), not per render — that keeps the icon row
-        # mounted across reruns instead of being re-styled each time.
-        # Focus Mode: when a category is selected, dim and shrink the
-        # other icons, scale and glow the selected one. CSS rules
-        # injected per-render only when selected is not None — when
-        # nothing is selected, no rules apply and all icons sit at
-        # their default scale(1)/opacity(1).
+        # SCRIPT-POSITION STABILITY: every block below this point must
+        # exist at a constant script index across reruns. Streamlit
+        # assigns positional element IDs based on call order, and when
+        # script positions shift between runs (e.g., a conditional
+        # `st.markdown(<style>)` appearing or disappearing), Streamlit
+        # Cloud's reconciler can mount the new element at a fresh ID
+        # without unmounting the old one — surfacing the duplicate
+        # icon-row + drill-section ghosts seen on category click.
+        #
+        # Emit ONE always-present <style> tag with rule contents that
+        # vary by state. The element identity stays constant; only its
+        # innerHTML changes. Same trick for the greeting div.
+        focus_css = ""
         if selected is not None:
-            st.markdown(
-                f"<style>"
+            focus_css = (
                 f"[class*='st-key-iconbtn_'] button{{"
                 f"opacity:.4!important;transform:scale(.95)!important"
                 f"}}"
@@ -684,9 +663,37 @@ def render_chat(sidebar_slot, main_slot):
                 f".st-key-iconbtn_{selected} button:hover{{"
                 f"transform:scale(1.07)!important"
                 f"}}"
-                f"</style>",
-                unsafe_allow_html=True,
             )
+        pending_css = ""
+        if has_pending:
+            pending_css = (
+                "[data-testid='stChatInput']{"
+                "animation:inputPulse 1.4s ease-in-out infinite}"
+            )
+        # Always-present empty-state centering rules + always-present
+        # state-conditional rules. Single emission, fixed position.
+        st.markdown(
+            "<style>"
+            ".st-key-empty_state_block{display:flex;"
+            "flex-direction:column;align-items:center;width:100%}"
+            ".st-key-empty_state_block iframe{max-width:520px;width:100%!important}"
+            f"{focus_css}"
+            f"{pending_css}"
+            "</style>",
+            unsafe_allow_html=True,
+        )
+
+        # Greeting renders inside an always-present keyed wrapper so
+        # toggling msgs ↔ no-msgs doesn't shift the icon row's script
+        # position. Wrapper stays mounted; inner content swaps.
+        with st.container(key="greeting_block"):
+            if not msgs:
+                greet_cls = "page-entry-3" if is_first_render else ""
+                st.markdown(
+                    f'<div class="{greet_cls}"><strong>'
+                    f'👋 What do you need help with?</strong></div>',
+                    unsafe_allow_html=True,
+                )
 
         # Stable-key wrapper anchors the icon row at a fixed logical
         # position so Streamlit's reconciler matches by key on reruns
@@ -707,24 +714,11 @@ def render_chat(sidebar_slot, main_slot):
                               args=(i, conv))
 
         # Empty-state Lottie illustration: only renders on the landing
-        # state (no chat yet, no topic selected). Wrapped in a stable
-        # keyed container so the reconciler treats it as a distinct
-        # subtree from the icon row above and the drill below.
+        # state (no chat yet, no topic selected). Wrapper stays mounted
+        # at a fixed script position; inner content swaps. CSS centering
+        # for the wrapper is consolidated into the single style block
+        # above so this block adds no extra script-position elements.
         empty_state = (not msgs) and (selected is None) and (not has_pending)
-        # CSS-centered single-column wrapper. The prior `st.columns([1,2,1])`
-        # nested inside this block was aliasing positionally with the icon
-        # row's `st.columns(4)` on Streamlit Cloud's reconciler, leaving
-        # ghost icon DOM in the outer column shells whenever the drill
-        # toggled off. A plain keyed container with flex centering carries
-        # no nested column structure, so nothing for the reconciler to
-        # cross-match.
-        st.markdown(
-            "<style>.st-key-empty_state_block{display:flex;"
-            "flex-direction:column;align-items:center;width:100%}"
-            ".st-key-empty_state_block iframe{max-width:520px;width:100%!important}"
-            "</style>",
-            unsafe_allow_html=True,
-        )
         with st.container(key="empty_state_block"):
             if empty_state and _HAS_LOTTIE:
                 try:
