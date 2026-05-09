@@ -373,6 +373,25 @@ def _fetch_admin(path):
 def _queue_query(q):
     if q: st.session_state.pending_query = q; st.session_state.pending_append_user = True
 
+def _on_chip_click(q):
+    """on_click callback for chip buttons — sets pending query without an
+    explicit st.rerun() so we save one rerun cycle (Streamlit reruns
+    automatically after a widget callback)."""
+    _queue_query(q)
+
+def _on_icon_click(i, conv):
+    """on_click callback for category icon buttons — toggles selected_topic
+    and purges chip widget state from prior topic. Eliminates the explicit
+    st.rerun() that was costing an extra script execution per click."""
+    selected = st.session_state.get("selected_topic")
+    if selected == i:
+        st.session_state.pop("selected_topic", None)
+        return
+    st.session_state["selected_topic"] = i
+    for k in list(st.session_state.keys()):
+        if isinstance(k, str) and k.startswith(f"chip_{conv}_"):
+            del st.session_state[k]
+
 def _queue_regenerate(idx):
     msgs = st.session_state.messages
     if 0<idx<len(msgs) and msgs[idx]["role"]=="assistant" and msgs[idx-1]["role"]=="user":
@@ -621,15 +640,14 @@ def render_chat(sidebar_slot, main_slot):
                 unsafe_allow_html=True,
             )
 
-        # Greeting slot lives ABOVE the icon row, so reserve it first.
-        # The icon row itself is static (4 fixed buttons with stable
-        # keys) — Streamlit reconciles it in place across reruns, no
-        # tear-down needed.
-        greeting_slot = st.empty()
-        greeting_slot.empty()
+        # Greeting renders directly — no st.empty() placeholder. The prior
+        # `st.empty(); .empty(); .markdown(...)` pattern was a no-op clear
+        # (a freshly-created placeholder is already empty) and Streamlit's
+        # reconciler handles "now-absent" elements correctly when the
+        # script simply omits them on a later rerun.
         if not msgs:
             greet_cls = "page-entry-3" if is_first_render else ""
-            greeting_slot.markdown(
+            st.markdown(
                 f'<div class="{greet_cls}"><strong>'
                 f'👋 What do you need help with?</strong></div>',
                 unsafe_allow_html=True,
@@ -673,33 +691,33 @@ def render_chat(sidebar_slot, main_slot):
         # Row of 4 icon-buttons. Static keys (iconbtn_0..3) so the buttons
         # keep stable identity across reruns and across New chat resets,
         # which lets Streamlit reconcile in place rather than remount.
+        # on_click callbacks (vs. the prior `if st.button(...): ... st.rerun()`)
+        # save one full script re-execution per click — Streamlit reruns
+        # automatically after a callback completes.
         icon_cols = st.columns(4)
         for i, (icon_path, name, _qs) in enumerate(TOPIC_CATEGORIES):
             with icon_cols[i]:
-                if st.button(name,
-                             key=f"iconbtn_{i}",
-                             help=name,
-                             use_container_width=True):
-                    if selected == i:
-                        st.session_state.pop("selected_topic", None)
-                    else:
-                        st.session_state["selected_topic"] = i
-                        # Purge any chip widget state from prior topic
-                        # so Streamlit can't reattach old chips to the
-                        # new drill view.
-                        for k in list(st.session_state.keys()):
-                            if isinstance(k, str) and k.startswith(f"chip_{conv}_"):
-                                del st.session_state[k]
-                    st.rerun()
+                st.button(name,
+                          key=f"iconbtn_{i}",
+                          help=name,
+                          use_container_width=True,
+                          on_click=_on_icon_click,
+                          args=(i, conv))
 
         # Empty-state Lottie illustration: only renders on the landing
         # state (no chat yet, no topic selected). Disappears the moment
         # the user engages so it never competes with the actual task.
         # Wrapped in try/except so a missing JSON or absent package
         # silently no-ops instead of breaking the page.
+        # The prior `st.empty(); .empty(); .container()` pattern was the
+        # source of the stale-DOM ghost icons reported on Streamlit Cloud:
+        # `st.empty()` creates a fresh placeholder each rerun and calling
+        # `.empty()` on it before filling it does nothing useful. When the
+        # next rerun changes the structure (drill expanded → collapsed),
+        # Streamlit's reconciler kept old subtrees alive. Direct
+        # conditional rendering — emit only when needed — lets the
+        # reconciler drop the old subtree cleanly.
         empty_state = (not msgs) and (selected is None) and (not has_pending)
-        empty_state_slot = st.empty()
-        empty_state_slot.empty()
         if empty_state and _HAS_LOTTIE:
             try:
                 lottie_path = os.path.join(
@@ -707,38 +725,29 @@ def render_chat(sidebar_slot, main_slot):
                     "logo", "empty_state.json",
                 )
                 anim = _lottie_data(lottie_path)
-                with empty_state_slot.container():
-                    cols = st.columns([1, 2, 1])
-                    with cols[1]:
-                        st_lottie(
-                            anim,
-                            height=220,
-                            loop=True,
-                            quality="high",
-                            speed=1.0,
-                            key="empty_state_lottie",
-                        )
-                        st.markdown(
-                            "<div style='text-align:center;color:#7a8190;"
-                            "font-size:.85rem;margin-top:-10px'>"
-                            "Pick a category above or type a question below to get started"
-                            "</div>",
-                            unsafe_allow_html=True,
-                        )
+                cols = st.columns([1, 2, 1])
+                with cols[1]:
+                    st_lottie(
+                        anim,
+                        height=220,
+                        loop=True,
+                        quality="high",
+                        speed=1.0,
+                        key="empty_state_lottie",
+                    )
+                    st.markdown(
+                        "<div style='text-align:center;color:#7a8190;"
+                        "font-size:.85rem;margin-top:-10px'>"
+                        "Pick a category above or type a question below to get started"
+                        "</div>",
+                        unsafe_allow_html=True,
+                    )
             except Exception:
                 pass
 
-        # Drill and chat slots are reserved AFTER the icon row (and the
-        # empty-state slot) so their rendered DOM lands BELOW. Force-
-        # clearing each rerun prevents stale chip / chat-bubble DOM
-        # from leaking across reruns.
-        drill_slot = st.empty()
-        chat_slot = st.empty()
-        drill_slot.empty()
-        chat_slot.empty()
-
-        # Drill content for the selected topic. Only renders when a topic
-        # is selected; otherwise drill_slot stays empty.
+        # Drill content renders directly when a topic is selected. No
+        # st.empty() placeholder — the reconciler drops the drill subtree
+        # cleanly when `selected` flips back to None on toggle-off.
         if selected is not None:
             _icon, sel_name, sel_questions = TOPIC_CATEGORIES[selected]
             remaining = [(j, q) for j, q in enumerate(sel_questions) if q not in asked]
@@ -749,34 +758,33 @@ def render_chat(sidebar_slot, main_slot):
                     chip_key = f"chip_{conv}_{selected}_{j}"
                     if chip_key in st.session_state:
                         del st.session_state[chip_key]
-            with drill_slot.container():
-                # drill-section class drives the max-height + opacity
-                # expansion defined in the global stylesheet.
-                st.markdown(
-                    f'<div class="drill-section"><h3>{sel_name}</h3></div>',
-                    unsafe_allow_html=True,
-                )
-                if remaining:
-                    # Each chip lives inside its own keyed container so
-                    # the wrapper carries an st-key-chipwrap_pos<N>_...
-                    # class. CSS targets that class for animation +
-                    # styling — far more reliable than the previous
-                    # markdown-wrap trick whose <div class="chip-btn">
-                    # got auto-closed by the HTML parser, leaving the
-                    # button as a sibling instead of a child.
-                    for chip_pos, (j, q) in enumerate(remaining, start=1):
-                        wrap_key = f"chipwrap_pos{chip_pos}_{conv}_{selected}_{j}"
-                        with st.container(key=wrap_key):
-                            if st.button(q, key=f"chip_{conv}_{selected}_{j}",
-                                         use_container_width=True,
-                                         disabled=has_pending):
-                                _queue_query(q)
-                                st.rerun()
-                else:
-                    st.caption("All questions in this topic asked.")
+            # drill-section class drives the max-height + opacity
+            # expansion defined in the global stylesheet.
+            st.markdown(
+                f'<div class="drill-section"><h3>{sel_name}</h3></div>',
+                unsafe_allow_html=True,
+            )
+            if remaining:
+                # Each chip lives inside its own keyed container so
+                # the wrapper carries an st-key-chipwrap_pos<N>_...
+                # class. CSS targets that class for animation +
+                # styling — far more reliable than the previous
+                # markdown-wrap trick whose <div class="chip-btn">
+                # got auto-closed by the HTML parser, leaving the
+                # button as a sibling instead of a child.
+                for chip_pos, (j, q) in enumerate(remaining, start=1):
+                    wrap_key = f"chipwrap_pos{chip_pos}_{conv}_{selected}_{j}"
+                    with st.container(key=wrap_key):
+                        st.button(q, key=f"chip_{conv}_{selected}_{j}",
+                                  use_container_width=True,
+                                  disabled=has_pending,
+                                  on_click=_on_chip_click,
+                                  args=(q,))
+            else:
+                st.caption("All questions in this topic asked.")
 
         if msgs or has_pending:
-            with chat_slot.container(height=520):
+            with st.container(height=520):
                 for idx, msg in enumerate(msgs):
                     avatar = USER_AVATAR if msg["role"] == "user" else ASSISTANT_AVATAR
                     role_short = "user" if msg["role"] == "user" else "asst"
