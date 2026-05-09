@@ -688,100 +688,88 @@ def render_chat(sidebar_slot, main_slot):
                 unsafe_allow_html=True,
             )
 
-        # Row of 4 icon-buttons. Static keys (iconbtn_0..3) so the buttons
-        # keep stable identity across reruns and across New chat resets,
-        # which lets Streamlit reconcile in place rather than remount.
-        # on_click callbacks (vs. the prior `if st.button(...): ... st.rerun()`)
-        # save one full script re-execution per click — Streamlit reruns
-        # automatically after a callback completes.
-        icon_cols = st.columns(4)
-        for i, (icon_path, name, _qs) in enumerate(TOPIC_CATEGORIES):
-            with icon_cols[i]:
-                st.button(name,
-                          key=f"iconbtn_{i}",
-                          help=name,
-                          use_container_width=True,
-                          on_click=_on_icon_click,
-                          args=(i, conv))
+        # Stable-key wrapper anchors the icon row at a fixed logical
+        # position so Streamlit's reconciler matches by key on reruns
+        # rather than by sibling index. Without this anchor, when the
+        # next sibling block changes shape (drill collapses → Lottie
+        # appears, or vice versa), Streamlit Cloud's reconciler can
+        # partial-merge old `st.columns(4)` icon DOM into the new
+        # neighboring layout and leak ghost icons into a phantom row.
+        with st.container(key="icon_row"):
+            icon_cols = st.columns(4)
+            for i, (icon_path, name, _qs) in enumerate(TOPIC_CATEGORIES):
+                with icon_cols[i]:
+                    st.button(name,
+                              key=f"iconbtn_{i}",
+                              help=name,
+                              use_container_width=True,
+                              on_click=_on_icon_click,
+                              args=(i, conv))
 
         # Empty-state Lottie illustration: only renders on the landing
-        # state (no chat yet, no topic selected). Disappears the moment
-        # the user engages so it never competes with the actual task.
-        # Wrapped in try/except so a missing JSON or absent package
-        # silently no-ops instead of breaking the page.
-        # The prior `st.empty(); .empty(); .container()` pattern was the
-        # source of the stale-DOM ghost icons reported on Streamlit Cloud:
-        # `st.empty()` creates a fresh placeholder each rerun and calling
-        # `.empty()` on it before filling it does nothing useful. When the
-        # next rerun changes the structure (drill expanded → collapsed),
-        # Streamlit's reconciler kept old subtrees alive. Direct
-        # conditional rendering — emit only when needed — lets the
-        # reconciler drop the old subtree cleanly.
+        # state (no chat yet, no topic selected). Wrapped in a stable
+        # keyed container so the reconciler treats it as a distinct
+        # subtree from the icon row above and the drill below.
         empty_state = (not msgs) and (selected is None) and (not has_pending)
-        if empty_state and _HAS_LOTTIE:
-            try:
-                lottie_path = os.path.join(
-                    os.path.dirname(os.path.abspath(__file__)),
-                    "logo", "empty_state.json",
-                )
-                anim = _lottie_data(lottie_path)
-                cols = st.columns([1, 2, 1])
-                with cols[1]:
-                    st_lottie(
-                        anim,
-                        height=220,
-                        loop=True,
-                        quality="high",
-                        speed=1.0,
-                        key="empty_state_lottie",
+        with st.container(key="empty_state_block"):
+            if empty_state and _HAS_LOTTIE:
+                try:
+                    lottie_path = os.path.join(
+                        os.path.dirname(os.path.abspath(__file__)),
+                        "logo", "empty_state.json",
                     )
-                    st.markdown(
-                        "<div style='text-align:center;color:#7a8190;"
-                        "font-size:.85rem;margin-top:-10px'>"
-                        "Pick a category above or type a question below to get started"
-                        "</div>",
-                        unsafe_allow_html=True,
-                    )
-            except Exception:
-                pass
+                    anim = _lottie_data(lottie_path)
+                    cols = st.columns([1, 2, 1])
+                    with cols[1]:
+                        st_lottie(
+                            anim,
+                            height=220,
+                            loop=True,
+                            quality="high",
+                            speed=1.0,
+                            key="empty_state_lottie",
+                        )
+                        st.markdown(
+                            "<div style='text-align:center;color:#7a8190;"
+                            "font-size:.85rem;margin-top:-10px'>"
+                            "Pick a category above or type a question below to get started"
+                            "</div>",
+                            unsafe_allow_html=True,
+                        )
+                except Exception:
+                    pass
 
-        # Drill content renders directly when a topic is selected. No
-        # st.empty() placeholder — the reconciler drops the drill subtree
-        # cleanly when `selected` flips back to None on toggle-off.
-        if selected is not None:
-            _icon, sel_name, sel_questions = TOPIC_CATEGORIES[selected]
-            remaining = [(j, q) for j, q in enumerate(sel_questions) if q not in asked]
-            # Purge asked questions' chip state so Streamlit cannot retain
-            # a stale chip widget after the script stops rendering it.
-            for j, q in enumerate(sel_questions):
-                if q in asked:
-                    chip_key = f"chip_{conv}_{selected}_{j}"
-                    if chip_key in st.session_state:
-                        del st.session_state[chip_key]
-            # drill-section class drives the max-height + opacity
-            # expansion defined in the global stylesheet.
-            st.markdown(
-                f'<div class="drill-section"><h3>{sel_name}</h3></div>',
-                unsafe_allow_html=True,
-            )
-            if remaining:
-                # Each chip lives inside its own keyed container so
-                # the wrapper carries an st-key-chipwrap_pos<N>_...
-                # class. CSS targets that class for animation +
-                # styling — far more reliable than the previous
-                # markdown-wrap trick whose <div class="chip-btn">
-                # got auto-closed by the HTML parser, leaving the
-                # button as a sibling instead of a child.
-                for chip_pos, (j, q) in enumerate(remaining, start=1):
-                    wrap_key = f"chipwrap_pos{chip_pos}_{conv}_{selected}_{j}"
-                    with st.container(key=wrap_key):
-                        st.button(q, key=f"chip_{conv}_{selected}_{j}",
-                                  use_container_width=True,
-                                  disabled=has_pending,
-                                  on_click=_on_chip_click,
-                                  args=(q,))
-            else:
-                st.caption("All questions in this topic asked.")
+        # Drill block lives inside its own keyed container so that
+        # toggling `selected` on/off flips the contents in-place
+        # without shifting sibling indices for the reconciler.
+        with st.container(key="drill_block"):
+            if selected is not None:
+                _icon, sel_name, sel_questions = TOPIC_CATEGORIES[selected]
+                remaining = [(j, q) for j, q in enumerate(sel_questions) if q not in asked]
+                # Purge asked questions' chip state so Streamlit cannot retain
+                # a stale chip widget after the script stops rendering it.
+                for j, q in enumerate(sel_questions):
+                    if q in asked:
+                        chip_key = f"chip_{conv}_{selected}_{j}"
+                        if chip_key in st.session_state:
+                            del st.session_state[chip_key]
+                # drill-section class drives the max-height + opacity
+                # expansion defined in the global stylesheet.
+                st.markdown(
+                    f'<div class="drill-section"><h3>{sel_name}</h3></div>',
+                    unsafe_allow_html=True,
+                )
+                if remaining:
+                    for chip_pos, (j, q) in enumerate(remaining, start=1):
+                        wrap_key = f"chipwrap_pos{chip_pos}_{conv}_{selected}_{j}"
+                        with st.container(key=wrap_key):
+                            st.button(q, key=f"chip_{conv}_{selected}_{j}",
+                                      use_container_width=True,
+                                      disabled=has_pending,
+                                      on_click=_on_chip_click,
+                                      args=(q,))
+                else:
+                    st.caption("All questions in this topic asked.")
 
         if msgs or has_pending:
             with st.container(height=520):
