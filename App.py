@@ -180,6 +180,11 @@ a:hover{color:var(--accent)}
 @keyframes meshFlow{0%,100%{background-position:0% 0%,100% 0%,0% 100%,100% 100%,0 0}50%{background-position:100% 50%,0% 50%,100% 0%,0% 100%,0 0}}
 [data-testid='stSidebar']{background:rgba(20,24,32,.65)!important;backdrop-filter:blur(14px) saturate(140%);-webkit-backdrop-filter:blur(14px) saturate(140%);border-right:1px solid rgba(255,255,255,.06)}
 [data-testid='stSidebar'] > div{background:transparent!important}
+[data-testid='stSidebar'][aria-expanded='false']{overflow:hidden!important;width:0!important;min-width:0!important;border-right:none!important}
+[data-testid='stSidebar'][aria-expanded='false'] *{visibility:hidden!important;opacity:0!important;pointer-events:none!important}
+[data-testid='stSidebarCollapseButton'] *,[data-testid='stSidebarCollapsedControl'] *{visibility:visible!important;opacity:1!important;pointer-events:auto!important}
+.st-key-lottie_wrap iframe,.st-key-lottie_wrap{background:transparent!important}
+.st-key-lottie_wrap iframe{display:block;margin:0 auto;max-width:360px;width:100%!important}
 @media (max-width: 768px){[data-testid='stAppViewContainer']::before{animation:none}[class*='st-key-chatmsg-user'] [data-testid='stChatMessage'],[class*='st-key-chatmsg-asst'] [data-testid='stChatMessage']{backdrop-filter:blur(6px) saturate(120%)!important;-webkit-backdrop-filter:blur(6px) saturate(120%)!important}[data-testid='stSidebar']{backdrop-filter:blur(8px) saturate(120%);-webkit-backdrop-filter:blur(8px) saturate(120%)}}
 @keyframes bubbleInRight{from{opacity:0;transform:translateX(14px) translateY(8px)}to{opacity:1;transform:translateX(0) translateY(0)}}
 @keyframes bubbleInLeft{from{opacity:0;transform:translateX(-14px) translateY(8px)}to{opacity:1;transform:translateX(0) translateY(0)}}
@@ -671,15 +676,11 @@ def render_chat(sidebar_slot, main_slot):
                 "[data-testid='stChatInput']{"
                 "animation:inputPulse 1.4s ease-in-out infinite}"
             )
-        # Always-present empty-state centering rules + always-present
-        # state-conditional rules. Single emission, fixed position.
+        # Always-present state-conditional rules. Single emission, fixed
+        # position. Lottie centering + transparent background lives in
+        # the global stylesheet (targets .st-key-lottie_wrap).
         st.markdown(
-            "<style>"
-            ".lottie-center iframe{"
-            "display:block;margin:0 auto;max-width:360px;width:100%!important}"
-            f"{focus_css}"
-            f"{pending_css}"
-            "</style>",
+            f"<style>{focus_css}{pending_css}</style>",
             unsafe_allow_html=True,
         )
 
@@ -731,22 +732,17 @@ def render_chat(sidebar_slot, main_slot):
                 )
                 anim = _lottie_data(lottie_path)
                 with empty_slot.container():
-                    # Wrapper class drives Lottie iframe centering +
-                    # max-width clamp via the consolidated style block.
-                    st.markdown(
-                        '<div class="lottie-center"></div>',
-                        unsafe_allow_html=True,
-                    )
                     c1, c2, c3 = st.columns([1, 2, 1])
                     with c2:
-                        st_lottie(
-                            anim,
-                            height=220,
-                            loop=True,
-                            quality="high",
-                            speed=1.0,
-                            key="empty_state_lottie",
-                        )
+                        with st.container(key="lottie_wrap"):
+                            st_lottie(
+                                anim,
+                                height=220,
+                                loop=True,
+                                quality="high",
+                                speed=1.0,
+                                key="empty_state_lottie",
+                            )
                         st.markdown(
                             "<div style='text-align:center;color:#7a8190;"
                             "font-size:.85rem;margin-top:-10px'>"
@@ -773,16 +769,33 @@ def render_chat(sidebar_slot, main_slot):
                     f'<div class="drill-section"><h3>{sel_name}</h3></div>',
                     unsafe_allow_html=True,
                 )
+                # Pre-allocated chip slots: each TOPIC_CATEGORIES entry
+                # has exactly 3 questions, so 3 fixed-position st.empty()
+                # slots cover every state. Fill the first len(remaining)
+                # slots with chips; explicitly clear the rest. Without
+                # the fixed allocation, dynamic chip-count reruns left
+                # ghost chip widgets in DOM on Streamlit Cloud (the
+                # most-recently-asked question's slot got reused by the
+                # next chip, so the prior chip text lingered as a
+                # phantom row beneath the live ones).
+                MAX_CHIPS = 3
+                chip_slots = [st.empty() for _ in range(MAX_CHIPS)]
                 if remaining:
-                    for chip_pos, (j, q) in enumerate(remaining, start=1):
-                        wrap_key = f"chipwrap_pos{chip_pos}_{conv}_{selected}_{j}_{len(asked)}"
-                        with st.container(key=wrap_key):
-                            st.button(q, key=f"chip_{conv}_{selected}_{j}_{len(asked)}",
-                                      use_container_width=True,
-                                      disabled=has_pending,
-                                      on_click=_on_chip_click,
-                                      args=(q,))
+                    for slot, (j, q) in zip(chip_slots, remaining):
+                        with slot.container():
+                            wrap_key = f"chipwrap_{conv}_{selected}_{j}_{len(asked)}"
+                            with st.container(key=wrap_key):
+                                st.button(q,
+                                          key=f"chip_{conv}_{selected}_{j}_{len(asked)}",
+                                          use_container_width=True,
+                                          disabled=has_pending,
+                                          on_click=_on_chip_click,
+                                          args=(q,))
+                    for slot in chip_slots[len(remaining):]:
+                        slot.empty()
                 else:
+                    for slot in chip_slots:
+                        slot.empty()
                     st.caption("All questions in this topic asked.")
         else:
             drill_slot.empty()
