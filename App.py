@@ -109,6 +109,7 @@ body{font-weight:400}
 [data-testid='stChatInput']:focus-within,[data-baseweb='input']:focus-within{box-shadow:0 0 15px rgba(79,139,249,.20)!important;border-color:#4F8BF9!important;border-radius:14px!important}
 [data-testid='stChatInput'] textarea:focus,[data-baseweb='input'] input:focus{outline:none!important}
 [data-testid='stMain'] .block-container{max-width:1100px!important;margin-left:auto!important;margin-right:auto!important}
+[data-testid='stMain']:has(.st-key-admin_grid) .block-container{max-width:1500px!important}
 [data-testid='stChatInput']{border-radius:14px!important;border:1px solid rgba(255,255,255,.08)!important;background:rgba(28,34,46,.92)!important;transition:all .3s ease!important;backdrop-filter:saturate(140%)}
 [data-testid='stChatInput'] textarea::placeholder{color:#6b7280!important;opacity:.85!important}
 [data-testid='stChatInput'] button{border-radius:10px!important;transition:background-color .15s ease,transform .12s ease!important}
@@ -981,13 +982,18 @@ def render_admin(sidebar_slot, main_slot):
                     st.error("Invalid password.")
             return
 
+        # Row-count control. Slider value persists in session state via
+        # the widget key, so the user's choice survives across reruns
+        # without needing an explicit st.session_state default.
+        row_limit = st.session_state.get("adm_row_limit", 25)
+
         try:
             summary    = _fetch_admin("/analytics")
             timeseries = _fetch_admin("/analytics/timeseries?days=14")
             intents    = _fetch_admin("/analytics/intents")
             latency    = _fetch_admin("/analytics/latency")
             feedback   = _fetch_admin("/analytics/feedback")
-            sessions   = _fetch_admin("/sessions?limit=20")
+            sessions   = _fetch_admin(f"/sessions?limit={row_limit}")
         except Exception:
             st.warning("Backend unreachable – analytics unavailable.")
             return
@@ -1068,16 +1074,29 @@ def render_admin(sidebar_slot, main_slot):
 
             st.divider()
 
+            ctrl_l, ctrl_r = st.columns([3, 1], gap="medium")
+            with ctrl_l:
+                st.subheader("Activity")
+            with ctrl_r:
+                st.slider(
+                    "Rows to show",
+                    min_value=10, max_value=200, step=5,
+                    value=row_limit,
+                    key="adm_row_limit",
+                    help="Applies to both Top Questions and Recent Sessions.",
+                )
+
             tab1, tab2 = st.tabs(["Top Questions", "Recent Sessions"])
+            table_height = max(300, min(680, 32 + 35 * row_limit))
             with tab1:
                 top = summary.get("top_questions", [])
                 if top:
-                    st.dataframe(top, use_container_width=True, hide_index=True, height=340)
+                    st.dataframe(top[:row_limit], use_container_width=True, hide_index=True, height=table_height)
                 else:
                     st.info("No questions logged.")
             with tab2:
                 if sessions:
-                    st.dataframe(sessions, use_container_width=True, hide_index=True, height=340)
+                    st.dataframe(sessions[:row_limit], use_container_width=True, hide_index=True, height=table_height)
                 else:
                     st.info("No sessions.")
             st.caption(f"Last refreshed: {datetime.utcnow():%Y-%m-%d %H:%M UTC}")
