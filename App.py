@@ -577,7 +577,7 @@ def render_chat(sidebar_slot, main_slot):
             unsafe_allow_html=True,
         )
 
-    with main_slot:
+    with main_slot, st.container(key="chat_root"):
         # Page-entry stagger classes only attach on first render.
         hero_cls = "hero-title page-entry-1" if is_first_render else "hero-title"
         sub_cls = "hero-sub page-entry-2" if is_first_render else "hero-sub"
@@ -811,7 +811,7 @@ def render_chat(sidebar_slot, main_slot):
         chat_slot = st.empty()
         if msgs or has_pending:
             with chat_slot.container():
-                with st.container(height=520):
+                with st.container(key="chat_history_box", height=520):
                     for idx, msg in enumerate(msgs):
                         avatar = USER_AVATAR if msg["role"] == "user" else ASSISTANT_AVATAR
                         role_short = "user" if msg["role"] == "user" else "asst"
@@ -1124,6 +1124,7 @@ main_view = st.container(key=f"view_main_{view_tag}")
 HIDE = "{display:none !important;visibility:hidden !important;height:0 !important;overflow:hidden !important;position:absolute !important;left:-99999px !important}"
 if view == NAV_ADMIN:
     ghost_css = (
+        "[class*='st-key-chat_root'],"
         "[class*='st-key-iconbtn_'],"
         "[class*='st-key-empty_state_block'],"
         "[class*='st-key-drill_block'],"
@@ -1132,6 +1133,8 @@ if view == NAV_ADMIN:
         "[class*='st-key-greeting_block'],"
         "[class*='st-key-icon_row'],"
         "[class*='st-key-lottie_wrap'],"
+        "[class*='st-key-chat_history_box'],"
+        ".drill-section,"
         "[data-testid='stChatInput'],"
         "[data-testid='stChatMessage']"
         f"{HIDE}"
@@ -1143,11 +1146,10 @@ else:  # NAV_CHAT
         "[data-testid='stArrowVegaLiteChart'],"
         "[data-testid='stPlotlyChart'],"
         "[data-testid='stMetric'],"
-        "[data-testid='stDataFrame']"
+        "[data-testid='stDataFrame'],"
+        "[data-testid='stTabs']"
         f"{HIDE}"
     )
-# Also hide the inactive view's keyed wrapper (covers anything new
-# components add later that aren't in the whitelist above).
 ghost_css += (
     f",[class*='st-key-view_main_{inactive_tag}'],"
     f"[class*='st-key-view_sb_{inactive_tag}']"
