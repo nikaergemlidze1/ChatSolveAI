@@ -110,6 +110,7 @@ body{font-weight:400}
 [data-testid='stChatInput'] textarea:focus,[data-baseweb='input'] input:focus{outline:none!important}
 [data-testid='stMain'] .block-container{max-width:1100px!important;margin-left:auto!important;margin-right:auto!important}
 [data-testid='stMain']:has(.st-key-admin_grid) .block-container{max-width:1500px!important}
+@media (max-width:900px){.st-key-admin_grid [data-testid='stHorizontalBlock']{flex-direction:column!important;gap:1rem!important}.st-key-admin_grid [data-testid='stHorizontalBlock'] [data-testid='stColumn']{width:100%!important;flex:1 1 100%!important;min-width:0!important}.st-key-admin_grid [data-testid='stMetric']{padding:12px 14px!important}.st-key-admin_grid [data-testid='stMetricValue']{font-size:1.4rem!important}}
 [data-testid='stChatInput']{border-radius:14px!important;border:1px solid rgba(255,255,255,.08)!important;background:rgba(28,34,46,.92)!important;transition:all .3s ease!important;backdrop-filter:saturate(140%)}
 [data-testid='stChatInput'] textarea::placeholder{color:#6b7280!important;opacity:.85!important}
 [data-testid='stChatInput'] button{border-radius:10px!important;transition:background-color .15s ease,transform .12s ease!important}
@@ -374,9 +375,20 @@ def call_feedback(q,a,rating):
 
 @st.cache_data(ttl=30, show_spinner=False)
 def _fetch_admin(path):
-    r = requests.get(f"{API_URL}{path}", headers=_api_headers(), timeout=20)
-    r.raise_for_status()
-    return r.json()
+    """Fetch admin endpoint with exponential-backoff retry. Handles
+    HuggingFace Spaces cold-start delays (the backend can take 20-60s
+    to wake from sleep). Three attempts: immediate, +2s, +5s."""
+    last_exc = None
+    for delay in (0, 2, 5):
+        if delay:
+            time.sleep(delay)
+        try:
+            r = requests.get(f"{API_URL}{path}", headers=_api_headers(), timeout=25)
+            r.raise_for_status()
+            return r.json()
+        except Exception as e:
+            last_exc = e
+    raise last_exc if last_exc else RuntimeError(f"fetch failed: {path}")
 
 # ══════════════════════════════════════════════
 # Chat callbacks & render helpers
@@ -481,9 +493,14 @@ def submit_query(query, append_user=True):
                 '<div class="typing-dots"><span></span><span></span><span></span></div>',
                 unsafe_allow_html=True,
             )
-            result = call_chat_stream(query,box) if USE_STREAMING else call_chat(query)
-            if not USE_STREAMING and result: box.markdown(result.get("answer",""))
+            try:
+                result = call_chat_stream(query,box) if USE_STREAMING else call_chat(query)
+                if not USE_STREAMING and result: box.markdown(result.get("answer",""))
+            except Exception as exc:
+                result = None
+                st.toast(f"Chat request failed: {exc}", icon="⚠️")
     if not result:
+        st.toast("No response from backend. Try again in a moment.", icon="⚠️")
         if append_user and st.session_state.messages and st.session_state.messages[-1]["role"]=="user" and st.session_state.messages[-1]["content"]==query:
             st.session_state.messages.pop()
         return False
@@ -576,6 +593,19 @@ def render_chat(sidebar_slot, main_slot):
             "<style>[data-testid='stSidebar']{"
             "animation:sidebarSlide .5s cubic-bezier(.16,1,.3,1) both}</style>",
             unsafe_allow_html=True,
+        )
+
+    # Backend warmup: fire a background fetch to /health on first
+    # render so the HuggingFace Space wakes from sleep before the
+    # user clicks Admin Dashboard. Pure browser-side, doesn't block
+    # Python rendering.
+    if is_first_render:
+        components.html(
+            f"""<script>
+            try {{ fetch("{API_URL}/health", {{mode:'no-cors',cache:'no-store'}}); }}
+            catch (e) {{}}
+            </script>""",
+            height=0,
         )
 
     with main_slot, st.container(key="chat_root"):
@@ -983,20 +1013,8 @@ def render_admin(sidebar_slot, main_slot):
             return
 
         # Row-count control. Slider value persists in session state via
-        # the widget key, so the user's choice survives across reruns
-        # without needing an explicit st.session_state default.
+        # the widget key (`adm_row_limit`).
         row_limit = st.session_state.get("adm_row_limit", 25)
-
-        try:
-            summary    = _fetch_admin("/analytics")
-            timeseries = _fetch_admin("/analytics/timeseries?days=14")
-            intents    = _fetch_admin("/analytics/intents")
-            latency    = _fetch_admin("/analytics/latency")
-            feedback   = _fetch_admin("/analytics/feedback")
-            sessions   = _fetch_admin(f"/sessions?limit={row_limit}")
-        except Exception:
-            st.warning("Backend unreachable – analytics unavailable.")
-            return
 
         st.markdown(
             "<style>"
@@ -1012,6 +1030,22 @@ def render_admin(sidebar_slot, main_slot):
             unsafe_allow_html=True,
         )
         with st.container(key="admin_grid"):
+            # Fetch inside the keyed container so a successful re-render
+            # cleanly replaces any prior warning. The previous out-of-grid
+            # warning kept ghosting after the backend recovered.
+            with st.spinner("Loading analytics…"):
+                try:
+                    summary    = _fetch_admin("/analytics")
+                    timeseries = _fetch_admin("/analytics/timeseries?days=14")
+                    intents    = _fetch_admin("/analytics/intents")
+                    latency    = _fetch_admin("/analytics/latency")
+                    feedback   = _fetch_admin("/analytics/feedback")
+                    sessions   = _fetch_admin(f"/sessions?limit={row_limit}")
+                except Exception as exc:
+                    st.warning("Backend unreachable – analytics unavailable.")
+                    st.toast(f"Analytics fetch failed: {exc}", icon="⚠️")
+                    return
+
             st.title("Customer Support AI · Admin Dashboard")
 
             c1, c2, c3, c4 = st.columns(4)
