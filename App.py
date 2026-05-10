@@ -181,6 +181,10 @@ a:hover{color:var(--accent)}
 [data-testid='stSidebarNav'] ul li a{color:#cdd5e0!important;font-weight:500;padding:8px 12px;border-radius:8px;transition:all .2s ease;display:flex;align-items:center;gap:8px}
 [data-testid='stSidebarNav'] ul li a:hover{color:#fff!important;background:rgba(79,139,249,.15)!important}
 [data-testid='stSidebarNav'] ul li a[aria-current='page']{color:#fff!important;background:rgba(79,139,249,.22)!important;border-left:2px solid #4F8BF9}
+.nav-links{display:flex;flex-direction:column;gap:4px;margin:8px 0 4px}
+.nav-links .nav-link{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:10px;color:#cdd5e0!important;font-weight:500;font-size:.92rem;text-decoration:none!important;border:1px solid transparent;transition:all .2s ease}
+.nav-links .nav-link:hover{background:rgba(79,139,249,.12)!important;color:#fff!important;border-color:rgba(79,139,249,.25)}
+.nav-links .nav-link--active{background:rgba(79,139,249,.18)!important;color:#fff!important;border-color:rgba(79,139,249,.40);box-shadow:inset 3px 0 0 #4F8BF9}
 [data-testid='stSidebar'][aria-expanded='false']{overflow:hidden!important;width:0!important;min-width:0!important;border-right:none!important}
 [data-testid='stSidebar'][aria-expanded='false'] *{visibility:hidden!important;opacity:0!important;pointer-events:none!important}
 [data-testid='stSidebarCollapseButton'] *,[data-testid='stSidebarCollapsedControl'] *{visibility:visible!important;opacity:1!important;pointer-events:auto!important}
@@ -527,11 +531,19 @@ def render_chat(sidebar_slot, main_slot):
     with sidebar_slot:
         st.image("logo/Logo.png", width=256)
         st.title("Customer Support AI")
-        # Explicit page-link nav. Works regardless of whether
-        # Streamlit Cloud's pages/ auto-detection has picked up the
-        # multipage layout on this build.
-        st.page_link("App.py", label="Chat", icon="💬")
-        st.page_link("pages/2_Admin_Dashboard.py", label="Admin Dashboard", icon="📊")
+        # Explicit anchor links. Streamlit Cloud's auto-built page nav
+        # was not appearing reliably and st.page_link crashed when
+        # passed the entry script's filename. Plain target="_self"
+        # anchors trigger Streamlit's normal multipage navigation
+        # (full subtree teardown) without depending on the page-link
+        # widget API or auto-nav detection.
+        st.markdown(
+            '<div class="nav-links">'
+            '<a href="/" target="_self" class="nav-link nav-link--active">💬 Chat</a>'
+            '<a href="/Admin_Dashboard" target="_self" class="nav-link">📊 Admin Dashboard</a>'
+            '</div>',
+            unsafe_allow_html=True,
+        )
         st.divider()
         healthy = api_health()
         # Custom status indicator: pulsing green dot when the backend

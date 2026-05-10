@@ -61,6 +61,10 @@ st.markdown(
     [data-testid='StyledFullScreenButton'],[data-testid='stFullScreenButton'],[data-testid='stElementToolbar'],[data-testid='stHeaderActionElements']{display:none!important}
     .vega-actions,.vega-embed details,.vega-embed summary,.vega-bindings{display:none!important}
     [data-testid='stSidebar']{background:rgba(20,24,32,.65)!important;backdrop-filter:blur(14px) saturate(140%);-webkit-backdrop-filter:blur(14px) saturate(140%);border-right:1px solid rgba(255,255,255,.06)}
+    .nav-links{display:flex;flex-direction:column;gap:4px;margin:8px 0 4px}
+    .nav-links .nav-link{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:10px;color:#cdd5e0!important;font-weight:500;font-size:.92rem;text-decoration:none!important;border:1px solid transparent;transition:all .2s ease}
+    .nav-links .nav-link:hover{background:rgba(79,139,249,.12)!important;color:#fff!important;border-color:rgba(79,139,249,.25)}
+    .nav-links .nav-link--active{background:rgba(79,139,249,.18)!important;color:#fff!important;border-color:rgba(79,139,249,.40);box-shadow:inset 3px 0 0 #4F8BF9}
     .st-key-admin_grid [data-testid='stMetric']{background:rgba(20,24,32,.55);border:1px solid rgba(255,255,255,.06);border-radius:14px;padding:16px 20px;backdrop-filter:blur(8px) saturate(140%);transition:transform .25s ease,box-shadow .25s ease}
     .st-key-admin_grid [data-testid='stMetric']:hover{transform:translateY(-2px);box-shadow:0 6px 24px rgba(79,139,249,.12);border-color:rgba(79,139,249,.25)}
     .st-key-admin_grid [data-testid='stMetricLabel']{color:#7a8190!important;font-size:.7rem!important;letter-spacing:.08em;text-transform:uppercase;font-weight:600!important}
@@ -79,8 +83,13 @@ st.markdown(
 with st.sidebar:
     st.image("logo/Logo.png", width=256)
     st.title("Customer Support AI")
-    st.page_link("App.py", label="Chat", icon="💬")
-    st.page_link("pages/2_Admin_Dashboard.py", label="Admin Dashboard", icon="📊")
+    st.markdown(
+        '<div class="nav-links">'
+        '<a href="/" target="_self" class="nav-link">💬 Chat</a>'
+        '<a href="/Admin_Dashboard" target="_self" class="nav-link nav-link--active">📊 Admin Dashboard</a>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
     st.divider()
     if ADMIN_PASSWORD and st.session_state.get("admin_ok"):
         if st.button("Sign out", key="admin_signout"):
