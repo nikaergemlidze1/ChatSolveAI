@@ -61,6 +61,27 @@ USE_STREAMING    = os.getenv("USE_STREAMING","true").lower() not in {"0","false"
 
 def _api_headers(): return {"X-API-Key": API_KEY} if API_KEY else {}
 
+# Sentry: production error tracking. No-op when DSN is not set, so
+# local dev never tries to report anywhere. `traces_sample_rate=0.05`
+# captures 5% of transactions so the free tier doesn't burn through.
+try:
+    import sentry_sdk
+    _SENTRY_DSN = None
+    try:
+        _SENTRY_DSN = st.secrets.get("SENTRY_DSN")
+    except Exception:
+        pass
+    _SENTRY_DSN = _SENTRY_DSN or os.getenv("SENTRY_DSN")
+    if _SENTRY_DSN:
+        sentry_sdk.init(
+            dsn=_SENTRY_DSN,
+            traces_sample_rate=0.05,
+            send_default_pii=False,
+            release=os.getenv("APP_VERSION", "dev"),
+        )
+except ImportError:
+    pass
+
 # ══════════════════════════════════════════════
 # Page setup
 # ══════════════════════════════════════════════
@@ -578,6 +599,17 @@ def render_chat(sidebar_slot, main_slot):
             _perform_full_reset()
             st.rerun()
 
+        # Light/Dark theme toggle. Stores preference in session_state;
+        # CSS variable swap happens via the `theme-light` body class
+        # injected below. Persists for the session only (no localStorage
+        # without extra components).
+        is_light = st.toggle(
+            "☀️ Light theme",
+            value=st.session_state.get("_theme_light", False),
+            key="_theme_light",
+            help="Toggle light/dark color scheme.",
+        )
+
     # First-render flag drives the page-entry stagger animations (#3.F)
     # and the sidebar slide-in (#3.I). The flag flips False after the
     # very first render in this session, so subsequent reruns don't
@@ -595,6 +627,27 @@ def render_chat(sidebar_slot, main_slot):
             unsafe_allow_html=True,
         )
 
+    # Light theme overrides. Always emit the style tag with conditional
+    # contents so its script position stays stable across reruns (the
+    # earlier ghost-row debugging showed conditional <style> tags
+    # shift the positional element IDs of everything below them).
+    _light_css = ""
+    if is_light:
+        _light_css = (
+            "[data-testid='stApp']{background:#f8fafc!important;color:#0f172a!important}"
+            "[data-testid='stSidebar']{background:rgba(255,255,255,.85)!important;border-right:1px solid #e2e8f0!important}"
+            "[data-testid='stApp'] .hero-title{filter:none}"
+            "[data-testid='stApp'] .hero-sub{color:#475569!important}"
+            "[data-testid='stChatInput']{background:#fff!important;border:1px solid #e2e8f0!important}"
+            "[data-testid='stChatInput'] textarea{color:#0f172a!important}"
+            "[data-testid='stChatMessage']{background:rgba(255,255,255,.92)!important;border:1px solid #e2e8f0!important;color:#0f172a!important}"
+            "[class*='st-key-iconbtn_'] button,[class*='st-key-chipwrap_'] button,[class*='st-key-btn_new_chat'] button{background:#fff!important;border-color:#e2e8f0!important;color:#0f172a!important}"
+            "[class*='st-key-chipwrap_'] button:hover{background:#f1f5f9!important}"
+            ".drill-section h3{color:#0f172a!important}"
+            "[data-testid='stMain']:before,[data-testid='stAppViewContainer']:before{display:none!important}"
+        )
+    st.markdown(f"<style>{_light_css}</style>", unsafe_allow_html=True)
+
     # Backend warmup: fire a background fetch to /health on first
     # render so the HuggingFace Space wakes from sleep before the
     # user clicks Admin Dashboard. Pure browser-side, doesn't block
@@ -607,6 +660,15 @@ def render_chat(sidebar_slot, main_slot):
             </script>""",
             height=0,
         )
+        # Onboarding hint: shown once per session via toast. Doesn't
+        # add persistent DOM and auto-dismisses, so it cannot ghost.
+        if not st.session_state.get("_seen_onboarding"):
+            st.toast(
+                "Pick a category above for sample questions, "
+                "or type your own in the input below.",
+                icon="✨",
+            )
+            st.session_state["_seen_onboarding"] = True
 
     with main_slot, st.container(key="chat_root"):
         # Page-entry stagger classes only attach on first render.
@@ -1012,9 +1074,11 @@ def render_admin(sidebar_slot, main_slot):
                     st.error("Invalid password.")
             return
 
-        # Row-count control. Slider value persists in session state via
-        # the widget key (`adm_row_limit`).
-        row_limit = st.session_state.get("adm_row_limit", 25)
+        # Row-count control. Slider value persists via the widget key.
+        # Clamp to 50 in case a prior session stored a value above the
+        # backend's `limit` cap (the API returns 422 for higher values).
+        row_limit = min(50, st.session_state.get("adm_row_limit", 25))
+        st.session_state["adm_row_limit"] = row_limit
 
         st.markdown(
             "<style>"
@@ -1125,16 +1189,53 @@ def render_admin(sidebar_slot, main_slot):
 
             st.divider()
 
-            ctrl_l, ctrl_r = st.columns([3, 1], gap="medium")
+            ctrl_l, ctrl_m, ctrl_r = st.columns([3, 1, 1], gap="medium")
             with ctrl_l:
                 st.subheader("Activity")
+            with ctrl_m:
+                if st.button("🔄 Refresh", key="adm_refresh", use_container_width=True):
+                    _fetch_admin.clear()
+                    st.rerun()
+                st.selectbox(
+                    "Auto-refresh",
+                    ["Off", "30s", "1min", "5min"],
+                    key="adm_auto_refresh",
+                    label_visibility="collapsed",
+                )
             with ctrl_r:
                 st.slider(
                     "Rows to show",
-                    min_value=10, max_value=200, step=5,
+                    min_value=10, max_value=50, step=5,
                     value=row_limit,
                     key="adm_row_limit",
-                    help="Applies to both Top Questions and Recent Sessions.",
+                    help="Applies to both Top Questions and Recent Sessions. Backend caps at 50.",
+                )
+
+            # Auto-refresh: client-side meta-refresh fallback. Streamlit
+            # has no native interval primitive that survives across
+            # reruns, but a tiny components.html iframe with setTimeout
+            # → parent.click on the rerun button reliably triggers a
+            # script re-execution at the chosen interval. Iframe is
+            # 0-height so it adds no layout cost.
+            _intervals = {"Off": 0, "30s": 30, "1min": 60, "5min": 300}
+            _ar_seconds = _intervals.get(st.session_state.get("adm_auto_refresh", "Off"), 0)
+            if _ar_seconds:
+                components.html(
+                    f"""<script>
+                    setTimeout(() => {{
+                      try {{
+                        const root = window.parent.document;
+                        // Streamlit's rerun is triggered by clicking the
+                        // hamburger > Rerun, but a stable shortcut is to
+                        // dispatch the F5/refresh on the streamlit app
+                        // container. Simpler: post a message Streamlit's
+                        // runtime listens for. Here we just reload the
+                        // current location with the same query string.
+                        root.location.reload();
+                      }} catch (e) {{}}
+                    }}, {_ar_seconds * 1000});
+                    </script>""",
+                    height=0,
                 )
 
             tab1, tab2 = st.tabs(["Top Questions", "Recent Sessions"])
