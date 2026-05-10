@@ -527,6 +527,11 @@ def render_chat(sidebar_slot, main_slot):
     with sidebar_slot:
         st.image("logo/Logo.png", width=256)
         st.title("Customer Support AI")
+        # Explicit page-link nav. Works regardless of whether
+        # Streamlit Cloud's pages/ auto-detection has picked up the
+        # multipage layout on this build.
+        st.page_link("App.py", label="Chat", icon="💬")
+        st.page_link("pages/2_Admin_Dashboard.py", label="Admin Dashboard", icon="📊")
         st.divider()
         healthy = api_health()
         # Custom status indicator: pulsing green dot when the backend

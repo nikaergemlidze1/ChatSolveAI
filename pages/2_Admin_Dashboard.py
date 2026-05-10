@@ -79,6 +79,8 @@ st.markdown(
 with st.sidebar:
     st.image("logo/Logo.png", width=256)
     st.title("Customer Support AI")
+    st.page_link("App.py", label="Chat", icon="💬")
+    st.page_link("pages/2_Admin_Dashboard.py", label="Admin Dashboard", icon="📊")
     st.divider()
     if ADMIN_PASSWORD and st.session_state.get("admin_ok"):
         if st.button("Sign out", key="admin_signout"):
