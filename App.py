@@ -177,6 +177,10 @@ a:hover{color:var(--accent)}
 .stMarkdown h1 a,.stMarkdown h2 a,.stMarkdown h3 a,.stMarkdown h4 a,.drill-section h3 a,h1 .anchor-link,h2 .anchor-link,h3 .anchor-link{display:none!important}
 [data-testid='stSidebar']{background:rgba(20,24,32,.65)!important;backdrop-filter:blur(14px) saturate(140%);-webkit-backdrop-filter:blur(14px) saturate(140%);border-right:1px solid rgba(255,255,255,.06)}
 [data-testid='stSidebar'] > div{background:transparent!important}
+[data-testid='stSidebarNav']{display:block!important;visibility:visible!important;opacity:1!important;padding:.5rem .25rem 1rem!important;border-bottom:1px solid rgba(255,255,255,.06);margin-bottom:.5rem}
+[data-testid='stSidebarNav'] ul li a{color:#cdd5e0!important;font-weight:500;padding:8px 12px;border-radius:8px;transition:all .2s ease;display:flex;align-items:center;gap:8px}
+[data-testid='stSidebarNav'] ul li a:hover{color:#fff!important;background:rgba(79,139,249,.15)!important}
+[data-testid='stSidebarNav'] ul li a[aria-current='page']{color:#fff!important;background:rgba(79,139,249,.22)!important;border-left:2px solid #4F8BF9}
 [data-testid='stSidebar'][aria-expanded='false']{overflow:hidden!important;width:0!important;min-width:0!important;border-right:none!important}
 [data-testid='stSidebar'][aria-expanded='false'] *{visibility:hidden!important;opacity:0!important;pointer-events:none!important}
 [data-testid='stSidebarCollapseButton'] *,[data-testid='stSidebarCollapsedControl'] *{visibility:visible!important;opacity:1!important;pointer-events:auto!important}
