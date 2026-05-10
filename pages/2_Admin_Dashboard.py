@@ -83,13 +83,6 @@ st.markdown(
 with st.sidebar:
     st.image("logo/Logo.png", width=256)
     st.title("Customer Support AI")
-    st.markdown(
-        '<div class="nav-links">'
-        '<a href="/" target="_self" class="nav-link">💬 Chat</a>'
-        '<a href="/Admin_Dashboard" target="_self" class="nav-link nav-link--active">📊 Admin Dashboard</a>'
-        '</div>',
-        unsafe_allow_html=True,
-    )
     st.divider()
     if ADMIN_PASSWORD and st.session_state.get("admin_ok"):
         if st.button("Sign out", key="admin_signout"):

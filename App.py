@@ -531,19 +531,6 @@ def render_chat(sidebar_slot, main_slot):
     with sidebar_slot:
         st.image("logo/Logo.png", width=256)
         st.title("Customer Support AI")
-        # Explicit anchor links. Streamlit Cloud's auto-built page nav
-        # was not appearing reliably and st.page_link crashed when
-        # passed the entry script's filename. Plain target="_self"
-        # anchors trigger Streamlit's normal multipage navigation
-        # (full subtree teardown) without depending on the page-link
-        # widget API or auto-nav detection.
-        st.markdown(
-            '<div class="nav-links">'
-            '<a href="/" target="_self" class="nav-link nav-link--active">💬 Chat</a>'
-            '<a href="/Admin_Dashboard" target="_self" class="nav-link">📊 Admin Dashboard</a>'
-            '</div>',
-            unsafe_allow_html=True,
-        )
         st.divider()
         healthy = api_health()
         # Custom status indicator: pulsing green dot when the backend
