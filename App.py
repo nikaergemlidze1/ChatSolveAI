@@ -1030,10 +1030,17 @@ def render_admin(sidebar_slot, main_slot):
             unsafe_allow_html=True,
         )
         with st.container(key="admin_grid"):
-            # Fetch inside the keyed container so a successful re-render
-            # cleanly replaces any prior warning. The previous out-of-grid
-            # warning kept ghosting after the backend recovered.
+            # Status slot at the top of the grid. Streamlit Cloud
+            # was retaining the prior render's `st.warning` DOM when
+            # the next render skipped the warning, so the yellow
+            # "Backend unreachable" banner kept ghosting above
+            # successfully-loaded charts. An `st.empty()` slot whose
+            # content is explicitly replaced (with an empty 0-height
+            # iframe on success) forces the prior warning out.
+            status_slot = st.empty()
             with st.spinner("Loading analytics…"):
+                fetch_error = None
+                summary = timeseries = intents = latency = feedback = sessions = None
                 try:
                     summary    = _fetch_admin("/analytics")
                     timeseries = _fetch_admin("/analytics/timeseries?days=14")
@@ -1042,9 +1049,19 @@ def render_admin(sidebar_slot, main_slot):
                     feedback   = _fetch_admin("/analytics/feedback")
                     sessions   = _fetch_admin(f"/sessions?limit={row_limit}")
                 except Exception as exc:
-                    st.warning("Backend unreachable – analytics unavailable.")
-                    st.toast(f"Analytics fetch failed: {exc}", icon="⚠️")
-                    return
+                    fetch_error = exc
+
+            if fetch_error is not None:
+                with status_slot.container():
+                    st.warning(f"Backend unreachable – analytics unavailable. ({fetch_error})")
+                st.toast(f"Analytics fetch failed: {fetch_error}", icon="⚠️")
+                return
+
+            # Success: forcibly replace any prior warning DOM with an
+            # empty iframe so Streamlit Cloud cannot leave the banner
+            # mounted as a ghost.
+            with status_slot.container():
+                components.html("", height=0)
 
             st.title("Customer Support AI · Admin Dashboard")
 
