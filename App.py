@@ -1099,34 +1099,28 @@ with st.sidebar:
     view = st.radio("View", [NAV_CHAT, NAV_ADMIN], key="nav_view", label_visibility="collapsed")
     st.divider()
 
-prev_view = st.session_state.get("_prev_view")
-view_idx = st.session_state.get("_view_idx", 0)
-if prev_view is not None and prev_view != view:
-    view_idx += 1
-    st.session_state["_view_idx"] = view_idx
-st.session_state["_prev_view"] = view
-
 view_tag = "chat" if view == NAV_CHAT else "admin"
 inactive_tag = "admin" if view == NAV_CHAT else "chat"
 
 with st.sidebar:
-    sidebar_view = st.container(key=f"view_sb_{view_tag}_{view_idx}")
-main_view = st.container(key=f"view_main_{view_tag}_{view_idx}")
+    sidebar_view = st.container(key=f"view_sb_{view_tag}")
+main_view = st.container(key=f"view_main_{view_tag}")
 
-# CSS hide-by-class for the inactive view. Streamlit Cloud retains
-# the prior view's container DOM across the dispatch even with the
-# force-remount key trick (its iframe-component reconciler does not
-# unmount cleanly), so a wildcard CSS rule that targets every
-# `st-key-view_*_<inactive_tag>_*` ancestor `display:none`s any
-# leftover subtree. The active view's containers do not match the
-# inactive selector, so this is safe even when Streamlit Cloud has
-# kept multiple historical container instances mounted.
+# Hide every container whose key matches the inactive view tag.
+# Stable keys (no per-switch counter) keep view switches fast — the
+# active container is reused on revisit instead of fully remounting.
+# CSS hide catches any prior-render container Streamlit Cloud
+# retained, so the inactive view's chart iframes / Lottie /
+# warnings don't bleed through. The selector matches the exact
+# inactive key as well as any historical instance with a suffix
+# (`view_main_admin`, `view_main_admin_2`, etc.) and never matches
+# the active key (which uses the other view's tag).
 _extra_css = "[data-testid='stChatInput']{display:none !important;}" if view == NAV_ADMIN else ""
 st.markdown(
     f"<style>"
-    f"[class*='st-key-view_main_{inactive_tag}_'],"
-    f"[class*='st-key-view_sb_{inactive_tag}_']"
-    f"{{display:none !important;visibility:hidden !important;height:0 !important;overflow:hidden !important}}"
+    f"[class*='st-key-view_main_{inactive_tag}'],"
+    f"[class*='st-key-view_sb_{inactive_tag}']"
+    f"{{display:none !important;visibility:hidden !important;height:0 !important;overflow:hidden !important;position:absolute !important;left:-99999px !important}}"
     f"{_extra_css}"
     f"</style>",
     unsafe_allow_html=True,
