@@ -328,6 +328,36 @@ for _i, (_icon_path, _name, _qs) in enumerate(TOPIC_CATEGORIES):
 st.markdown(f"<style>{''.join(_ICON_CSS_RULES)}</style>", unsafe_allow_html=True)
 
 # ──────────────────────────────────────────────────────────────────────────────
+# "New chat" button uses a custom logo (logo/new_chat_logo.png, ~3.5:1 aspect).
+# Image is set as background so the button keeps native click behavior; the
+# label is kept in the DOM for accessibility but visually hidden. Same trick
+# the category icon buttons use; emitted once at module load.
+# ──────────────────────────────────────────────────────────────────────────────
+_NEW_CHAT_LOGO_B64 = _img_b64("logo/new_chat_logo.png")
+_NEW_CHAT_CSS = (
+    "[class*='st-key-btn_new_chat'] button{"
+    f"background-image:url('data:image/png;base64,{_NEW_CHAT_LOGO_B64}')!important;"
+    "background-position:center!important;"
+    "background-size:78% auto!important;"
+    "background-repeat:no-repeat!important;"
+    "background-color:rgba(79,139,249,0.06)!important;"
+    "height:64px!important;"
+    "padding:0!important;"
+    "border:1px solid rgba(255,255,255,0.08)!important;"
+    "border-radius:14px!important;"
+    "font-size:0!important;"  # hide the "New chat" text label without removing it from DOM
+    "color:transparent!important;"
+    "}"
+    "[class*='st-key-btn_new_chat'] button>div,"
+    "[class*='st-key-btn_new_chat'] button p{font-size:0!important;color:transparent!important}"
+    "[class*='st-key-btn_new_chat'] button:hover{"
+    "background-color:rgba(79,139,249,0.16)!important;"
+    "border-color:#4F8BF9!important;"
+    "}"
+)
+st.markdown(f"<style>{_NEW_CHAT_CSS}</style>", unsafe_allow_html=True)
+
+# ──────────────────────────────────────────────────────────────────────────────
 # Light-theme CSS. Hoisted to module scope so render_chat AND render_admin can
 # both emit it (the toggle now appears in both views' sidebars). Two parts:
 #   _LIGHT_CSS_GLOBAL — page chrome (sidebar, hero, chat, pills, ...).
@@ -380,8 +410,9 @@ _LIGHT_CSS_GLOBAL = (
     "[class*='st-key-chipwrap_'] button{background:#fffefa!important;border:1px solid #ece5d6!important;color:#1c1917!important}"
     "[class*='st-key-chipwrap_'] button:hover{background:#f5ede0!important;border-color:#4F8BF9!important;color:#1c1917!important}"
     "[class*='st-key-chipwrap_'] button::after{color:#8a8378!important}"
-    "[class*='st-key-btn_new_chat'] button{background:#fffefa!important;border:1px solid #ece5d6!important;color:#1c1917!important}"
-    "[class*='st-key-btn_new_chat'] button:hover{background:#f5ede0!important;border-color:#4F8BF9!important}"
+    # background-color (not the shorthand) so the logo image survives.
+    "[class*='st-key-btn_new_chat'] button{background-color:#fffefa!important;border:1px solid #ece5d6!important}"
+    "[class*='st-key-btn_new_chat'] button:hover{background-color:#f5ede0!important;border-color:#4F8BF9!important}"
     # Sidebar agent status
     ".agent-status{background:#fffefa!important;border:1px solid #ece5d6!important}"
     ".agent-status__label{color:#1c1917!important}"
@@ -699,7 +730,9 @@ def render_chat(sidebar_slot, main_slot):
             )
 
         st.divider()
-        if st.button("🗑 New chat", key="btn_new_chat", use_container_width=True):
+        # Visual: logo image background (set in module-level CSS).
+        # Label kept as accessible name for screen readers.
+        if st.button("New chat", key="btn_new_chat", use_container_width=True, help="Start a new chat"):
             _perform_full_reset()
             st.rerun()
 
