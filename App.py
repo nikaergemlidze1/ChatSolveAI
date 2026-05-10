@@ -599,15 +599,15 @@ def render_chat(sidebar_slot, main_slot):
             _perform_full_reset()
             st.rerun()
 
-        # Light/Dark theme toggle. Stores preference in session_state;
-        # CSS variable swap happens via the `theme-light` body class
-        # injected below. Persists for the session only (no localStorage
-        # without extra components).
+        # Light/Dark theme toggle. Label flips with state so the user
+        # always sees the OPPOSITE of the current mode (label = the
+        # mode they'd switch INTO if they clicked).
+        _current_light = st.session_state.get("_theme_light", False)
+        _toggle_label = "☀️ Light mode" if _current_light else "🌙 Dark mode"
         is_light = st.toggle(
-            "☀️ Light theme",
-            value=st.session_state.get("_theme_light", False),
+            _toggle_label,
             key="_theme_light",
-            help="Toggle light/dark color scheme.",
+            help="Switch between light and dark color schemes.",
         )
 
     # First-render flag drives the page-entry stagger animations (#3.F)
@@ -634,17 +634,51 @@ def render_chat(sidebar_slot, main_slot):
     _light_css = ""
     if is_light:
         _light_css = (
-            "[data-testid='stApp']{background:#f8fafc!important;color:#0f172a!important}"
-            "[data-testid='stSidebar']{background:rgba(255,255,255,.85)!important;border-right:1px solid #e2e8f0!important}"
-            "[data-testid='stApp'] .hero-title{filter:none}"
-            "[data-testid='stApp'] .hero-sub{color:#475569!important}"
-            "[data-testid='stChatInput']{background:#fff!important;border:1px solid #e2e8f0!important}"
-            "[data-testid='stChatInput'] textarea{color:#0f172a!important}"
-            "[data-testid='stChatMessage']{background:rgba(255,255,255,.92)!important;border:1px solid #e2e8f0!important;color:#0f172a!important}"
-            "[class*='st-key-iconbtn_'] button,[class*='st-key-chipwrap_'] button,[class*='st-key-btn_new_chat'] button{background:#fff!important;border-color:#e2e8f0!important;color:#0f172a!important}"
-            "[class*='st-key-chipwrap_'] button:hover{background:#f1f5f9!important}"
+            # Page-level surfaces
+            "[data-testid='stApp'],[data-testid='stMain'],[data-testid='stAppViewContainer'],.main{background:#f5f7fb!important;color:#0f172a!important}"
+            # Kill the animated mesh gradient backdrop
+            "[data-testid='stApp']::before,[data-testid='stAppViewContainer']::before,[data-testid='stMain']::before{display:none!important;background:none!important;animation:none!important;opacity:0!important}"
+            # Sidebar
+            "[data-testid='stSidebar']{background:#ffffff!important;border-right:1px solid #e2e8f0!important;backdrop-filter:none!important}"
+            "[data-testid='stSidebar'] *{color:#0f172a!important}"
+            "[data-testid='stSidebarNav'] a{color:#0f172a!important}"
+            "[data-testid='stSidebarNav'] a:hover{background:#eef2ff!important;color:#1e293b!important}"
+            "[data-testid='stSidebarNav'] a[aria-current='page']{background:#dbeafe!important;color:#1e3a8a!important}"
+            # Hero
+            ".hero-title{filter:none!important;-webkit-background-clip:text!important;background-clip:text!important}"
+            ".hero-sub{color:#475569!important}"
+            # Greeting strong
+            ".page-entry-3 strong,.page-entry-3{color:#0f172a!important}"
+            # Chat input + messages
+            "[data-testid='stChatInput']{background:#ffffff!important;border:1px solid #cbd5e1!important;box-shadow:0 1px 3px rgba(15,23,42,.06)}"
+            "[data-testid='stChatInput'] textarea{color:#0f172a!important;background:#fff!important}"
+            "[data-testid='stChatInput'] textarea::placeholder{color:#64748b!important}"
+            "[data-testid='stChatMessage']{background:#ffffff!important;border:1px solid #e2e8f0!important;color:#0f172a!important}"
+            "[data-testid='stChatMessage'] *{color:#0f172a!important}"
+            # Icon buttons + chips + new-chat + theme toggle
+            "[class*='st-key-iconbtn_'] button{background:#ffffff!important;border:1px solid #e2e8f0!important;color:#0f172a!important;box-shadow:0 1px 3px rgba(15,23,42,.06)}"
+            "[class*='st-key-chipwrap_'] button{background:#ffffff!important;border:1px solid #e2e8f0!important;color:#0f172a!important}"
+            "[class*='st-key-chipwrap_'] button:hover{background:#eff6ff!important;border-color:#4F8BF9!important;color:#0f172a!important}"
+            "[class*='st-key-chipwrap_'] button::after{color:#64748b!important}"
+            "[class*='st-key-btn_new_chat'] button{background:#ffffff!important;border:1px solid #e2e8f0!important;color:#0f172a!important}"
+            # Agent status pill text
+            ".agent-status__label{color:#0f172a!important}"
+            ".agent-status--online .agent-status__dot{box-shadow:0 0 0 3px rgba(34,197,94,.18)}"
+            # Drill section header
             ".drill-section h3{color:#0f172a!important}"
-            "[data-testid='stMain']:before,[data-testid='stAppViewContainer']:before{display:none!important}"
+            # Captions + small text
+            ".stMarkdown p,.stMarkdown li,.stCaption,small,[data-testid='stCaptionContainer']{color:#475569!important}"
+            # Pills (intent/confidence/latency)
+            ".pill{background:rgba(79,139,249,.10)!important;color:#1e40af!important}"
+            ".pill-green{background:rgba(34,197,94,.12)!important;color:#15803d!important}"
+            ".pill-amber{background:rgba(234,179,8,.14)!important;color:#854d0e!important}"
+            ".pill-red{background:rgba(239,68,68,.14)!important;color:#991b1b!important}"
+            ".pill-purple{background:rgba(168,85,247,.14)!important;color:#6b21a8!important}"
+            # Source cards
+            ".src-card{background:#ffffff!important;border:1px solid #e2e8f0!important;border-left:3px solid #4F8BF9!important;color:#0f172a!important}"
+            ".src-meta{color:#64748b!important}"
+            # Dividers
+            "hr{border-top:1px solid #e2e8f0!important;opacity:1!important}"
         )
     st.markdown(f"<style>{_light_css}</style>", unsafe_allow_html=True)
 
