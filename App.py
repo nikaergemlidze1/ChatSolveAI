@@ -358,25 +358,47 @@ st.markdown(f"<style>{''.join(_ICON_CSS_RULES)}</style>", unsafe_allow_html=True
 # the category icon buttons use; emitted once at module load.
 # ──────────────────────────────────────────────────────────────────────────────
 _NEW_CHAT_LOGO_B64 = _img_b64("logo/new_chat_logo.png")
+# The PNG itself contains a rounded white pill, so the cleanest visual is
+# to drop the surrounding button chrome (border + background + box-shadow)
+# and let the logo BE the button. Hover applies a subtle lift + glow via
+# transform / filter so there's still affordance without a second frame.
+# `!important` overrides the global :hover rule (line ~127) and the
+# light-theme background-color rule, so the look is consistent in both
+# themes with no double-border artifact.
 _NEW_CHAT_CSS = (
+    "[class*='st-key-btn_new_chat']{margin-top:4px}"
     "[class*='st-key-btn_new_chat'] button{"
     f"background-image:url('data:image/png;base64,{_NEW_CHAT_LOGO_B64}')!important;"
     "background-position:center!important;"
-    "background-size:78% auto!important;"
+    "background-size:contain!important;"
     "background-repeat:no-repeat!important;"
-    "background-color:rgba(79,139,249,0.06)!important;"
-    "height:64px!important;"
+    "background-color:transparent!important;"
+    "height:56px!important;"
     "padding:0!important;"
-    "border:1px solid rgba(255,255,255,0.08)!important;"
+    "border:none!important;"
+    "outline:none!important;"
     "border-radius:14px!important;"
-    "font-size:0!important;"  # hide the "New chat" text label without removing it from DOM
+    "box-shadow:none!important;"
+    "font-size:0!important;"  # hide the accessible "New chat" text label
     "color:transparent!important;"
+    "transition:transform .18s cubic-bezier(.16,1,.3,1),"
+    "filter .25s ease,box-shadow .25s ease!important;"
     "}"
     "[class*='st-key-btn_new_chat'] button>div,"
     "[class*='st-key-btn_new_chat'] button p{font-size:0!important;color:transparent!important}"
     "[class*='st-key-btn_new_chat'] button:hover{"
-    "background-color:rgba(79,139,249,0.16)!important;"
-    "border-color:#4F8BF9!important;"
+    "background-color:transparent!important;"
+    "border:none!important;"
+    "transform:translateY(-1px) scale(1.02)!important;"
+    "filter:brightness(1.04) drop-shadow(0 4px 12px rgba(79,139,249,.28))!important;"
+    "box-shadow:none!important;"
+    "}"
+    "[class*='st-key-btn_new_chat'] button:active{"
+    "transform:translateY(0) scale(.98)!important;"
+    "filter:brightness(.98)!important;"
+    "}"
+    "[class*='st-key-btn_new_chat'] button:focus-visible{"
+    "outline:2px solid #4F8BF9!important;outline-offset:3px!important;"
     "}"
 )
 st.markdown(f"<style>{_NEW_CHAT_CSS}</style>", unsafe_allow_html=True)
@@ -435,9 +457,11 @@ _LIGHT_CSS_GLOBAL = (
     "[class*='st-key-chipwrap_'] button{background:#fffefa!important;border:1px solid #ece5d6!important;color:#1c1917!important}"
     "[class*='st-key-chipwrap_'] button:hover{background:#f5ede0!important;border-color:#4F8BF9!important;color:#1c1917!important}"
     "[class*='st-key-chipwrap_'] button::after{color:#8a8378!important}"
-    # background-color (not the shorthand) so the logo image survives.
-    "[class*='st-key-btn_new_chat'] button{background-color:#fffefa!important;border:1px solid #ece5d6!important}"
-    "[class*='st-key-btn_new_chat'] button:hover{background-color:#f5ede0!important;border-color:#4F8BF9!important}"
+    # New-chat button is intentionally chromeless in both modes (the
+    # logo PNG carries its own pill). Keep background transparent and
+    # boost the hover drop-shadow tint on the warm cream background.
+    "[class*='st-key-btn_new_chat'] button{background-color:transparent!important;border:none!important}"
+    "[class*='st-key-btn_new_chat'] button:hover{background-color:transparent!important;border:none!important;filter:brightness(1.02) drop-shadow(0 4px 12px rgba(29,78,216,.22))!important}"
     # Sidebar agent status
     ".agent-status{background:#fffefa!important;border:1px solid #ece5d6!important}"
     ".agent-status__label{color:#1c1917!important}"
