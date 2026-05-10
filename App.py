@@ -327,6 +327,71 @@ for _i, (_icon_path, _name, _qs) in enumerate(TOPIC_CATEGORIES):
     )
 st.markdown(f"<style>{''.join(_ICON_CSS_RULES)}</style>", unsafe_allow_html=True)
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Light-theme CSS. Hoisted to module scope so render_chat AND render_admin can
+# both emit it (the toggle now appears in both views' sidebars). Two parts:
+#   _LIGHT_CSS_GLOBAL — page chrome (sidebar, hero, chat, pills, ...).
+#   _LIGHT_CSS_ADMIN  — admin-grid specific overrides (metric cards, tabs,
+#                        dataframes, refresh button, captions).
+# ──────────────────────────────────────────────────────────────────────────────
+_LIGHT_CSS_GLOBAL = (
+    "[data-testid='stApp'],[data-testid='stMain'],[data-testid='stAppViewContainer'],.main{background:#f5f7fb!important;color:#0f172a!important}"
+    "[data-testid='stApp']::before,[data-testid='stAppViewContainer']::before,[data-testid='stMain']::before{display:none!important;background:none!important;animation:none!important;opacity:0!important}"
+    "[data-testid='stSidebar']{background:#ffffff!important;border-right:1px solid #e2e8f0!important;backdrop-filter:none!important}"
+    "[data-testid='stSidebar'] *{color:#0f172a!important}"
+    "[data-testid='stSidebarNav'] a{color:#0f172a!important}"
+    "[data-testid='stSidebarNav'] a:hover{background:#eef2ff!important;color:#1e293b!important}"
+    "[data-testid='stSidebarNav'] a[aria-current='page']{background:#dbeafe!important;color:#1e3a8a!important}"
+    ".hero-title{filter:none!important;-webkit-background-clip:text!important;background-clip:text!important}"
+    ".hero-sub{color:#475569!important}"
+    ".page-entry-3 strong,.page-entry-3{color:#0f172a!important}"
+    "[data-testid='stChatInput']{background:#ffffff!important;border:1px solid #cbd5e1!important;box-shadow:0 1px 3px rgba(15,23,42,.06)}"
+    "[data-testid='stChatInput'] textarea{color:#0f172a!important;background:#fff!important}"
+    "[data-testid='stChatInput'] textarea::placeholder{color:#64748b!important}"
+    "[data-testid='stChatMessage']{background:#ffffff!important;border:1px solid #e2e8f0!important;color:#0f172a!important}"
+    "[data-testid='stChatMessage'] *{color:#0f172a!important}"
+    # Use background-color (not the `background` shorthand) so the category
+    # icon's background-image set at module load survives.
+    "[class*='st-key-iconbtn_'] button{background-color:#ffffff!important;border:1px solid #e2e8f0!important;color:#0f172a!important;box-shadow:0 1px 3px rgba(15,23,42,.06)}"
+    "[class*='st-key-iconbtn_'] button:hover{background-color:#eff6ff!important;border-color:#4F8BF9!important}"
+    "[class*='st-key-chipwrap_'] button{background:#ffffff!important;border:1px solid #e2e8f0!important;color:#0f172a!important}"
+    "[class*='st-key-chipwrap_'] button:hover{background:#eff6ff!important;border-color:#4F8BF9!important;color:#0f172a!important}"
+    "[class*='st-key-chipwrap_'] button::after{color:#64748b!important}"
+    "[class*='st-key-btn_new_chat'] button{background:#ffffff!important;border:1px solid #e2e8f0!important;color:#0f172a!important}"
+    ".agent-status__label{color:#0f172a!important}"
+    ".agent-status--online .agent-status__dot{box-shadow:0 0 0 3px rgba(34,197,94,.18)}"
+    ".drill-section h3{color:#0f172a!important}"
+    ".stMarkdown p,.stMarkdown li,.stCaption,small,[data-testid='stCaptionContainer']{color:#475569!important}"
+    ".pill{background:rgba(79,139,249,.10)!important;color:#1e40af!important}"
+    ".pill-green{background:rgba(34,197,94,.12)!important;color:#15803d!important}"
+    ".pill-amber{background:rgba(234,179,8,.14)!important;color:#854d0e!important}"
+    ".pill-red{background:rgba(239,68,68,.14)!important;color:#991b1b!important}"
+    ".pill-purple{background:rgba(168,85,247,.14)!important;color:#6b21a8!important}"
+    ".src-card{background:#ffffff!important;border:1px solid #e2e8f0!important;border-left:3px solid #4F8BF9!important;color:#0f172a!important}"
+    ".src-meta{color:#64748b!important}"
+    "hr{border-top:1px solid #e2e8f0!important;opacity:1!important}"
+    "[class*='st-key-admin_signout'] button{background:#ffffff!important;border:1px solid #e2e8f0!important;color:#0f172a!important}"
+)
+
+_LIGHT_CSS_ADMIN = (
+    ".st-key-admin_grid [data-testid='stMetric']{background:#ffffff!important;border:1px solid #e2e8f0!important;backdrop-filter:none!important;box-shadow:0 1px 3px rgba(15,23,42,.05)}"
+    ".st-key-admin_grid [data-testid='stMetric']:hover{box-shadow:0 6px 20px rgba(79,139,249,.10)!important;border-color:rgba(79,139,249,.35)!important}"
+    ".st-key-admin_grid [data-testid='stMetricLabel'],.st-key-admin_grid [data-testid='stMetricLabel'] *{color:#475569!important}"
+    ".st-key-admin_grid [data-testid='stMetricValue'],.st-key-admin_grid [data-testid='stMetricValue'] *{color:#0f172a!important;text-shadow:none!important}"
+    ".st-key-admin_grid h1,.st-key-admin_grid h2,.st-key-admin_grid h3{color:#0f172a!important}"
+    ".st-key-admin_grid [data-testid='stTabs'] button[role='tab']{color:#475569!important}"
+    ".st-key-admin_grid [data-testid='stTabs'] button[role='tab'][aria-selected='true']{color:#0f172a!important}"
+    ".st-key-admin_grid [data-testid='stTabs'] [data-baseweb='tab-list']{border-bottom:1px solid #e2e8f0!important}"
+    ".st-key-admin_grid [data-baseweb='select']>div{background:#ffffff!important;border:1px solid #cbd5e1!important;color:#0f172a!important}"
+    ".st-key-admin_grid [data-baseweb='select'] *{color:#0f172a!important}"
+    ".st-key-admin_grid label,.st-key-admin_grid [data-testid='stWidgetLabel']{color:#475569!important}"
+    ".st-key-admin_grid [data-testid='stButton'] button{background:#ffffff!important;border:1px solid #e2e8f0!important;color:#0f172a!important}"
+    ".st-key-admin_grid [data-testid='stButton'] button:hover{background:#eff6ff!important;border-color:#4F8BF9!important}"
+    ".st-key-admin_grid [data-testid='stDataFrame']{background:#ffffff!important;border:1px solid #e2e8f0!important;border-radius:10px!important}"
+    ".st-key-admin_grid [data-testid='stDataFrame'] *{color:#0f172a!important}"
+    ".st-key-admin_grid [data-testid='stCaptionContainer']{color:#64748b!important}"
+)
+
 def _init_state():
     url_id = _session_id_from_url()
     for k,v in {"session_id":url_id or str(uuid.uuid4()),"conv_id":str(uuid.uuid4())[:8],
@@ -628,58 +693,8 @@ def render_chat(sidebar_slot, main_slot):
         )
 
     # Light theme overrides. Always emit the style tag with conditional
-    # contents so its script position stays stable across reruns (the
-    # earlier ghost-row debugging showed conditional <style> tags
-    # shift the positional element IDs of everything below them).
-    _light_css = ""
-    if is_light:
-        _light_css = (
-            # Page-level surfaces
-            "[data-testid='stApp'],[data-testid='stMain'],[data-testid='stAppViewContainer'],.main{background:#f5f7fb!important;color:#0f172a!important}"
-            # Kill the animated mesh gradient backdrop
-            "[data-testid='stApp']::before,[data-testid='stAppViewContainer']::before,[data-testid='stMain']::before{display:none!important;background:none!important;animation:none!important;opacity:0!important}"
-            # Sidebar
-            "[data-testid='stSidebar']{background:#ffffff!important;border-right:1px solid #e2e8f0!important;backdrop-filter:none!important}"
-            "[data-testid='stSidebar'] *{color:#0f172a!important}"
-            "[data-testid='stSidebarNav'] a{color:#0f172a!important}"
-            "[data-testid='stSidebarNav'] a:hover{background:#eef2ff!important;color:#1e293b!important}"
-            "[data-testid='stSidebarNav'] a[aria-current='page']{background:#dbeafe!important;color:#1e3a8a!important}"
-            # Hero
-            ".hero-title{filter:none!important;-webkit-background-clip:text!important;background-clip:text!important}"
-            ".hero-sub{color:#475569!important}"
-            # Greeting strong
-            ".page-entry-3 strong,.page-entry-3{color:#0f172a!important}"
-            # Chat input + messages
-            "[data-testid='stChatInput']{background:#ffffff!important;border:1px solid #cbd5e1!important;box-shadow:0 1px 3px rgba(15,23,42,.06)}"
-            "[data-testid='stChatInput'] textarea{color:#0f172a!important;background:#fff!important}"
-            "[data-testid='stChatInput'] textarea::placeholder{color:#64748b!important}"
-            "[data-testid='stChatMessage']{background:#ffffff!important;border:1px solid #e2e8f0!important;color:#0f172a!important}"
-            "[data-testid='stChatMessage'] *{color:#0f172a!important}"
-            # Icon buttons + chips + new-chat + theme toggle
-            "[class*='st-key-iconbtn_'] button{background:#ffffff!important;border:1px solid #e2e8f0!important;color:#0f172a!important;box-shadow:0 1px 3px rgba(15,23,42,.06)}"
-            "[class*='st-key-chipwrap_'] button{background:#ffffff!important;border:1px solid #e2e8f0!important;color:#0f172a!important}"
-            "[class*='st-key-chipwrap_'] button:hover{background:#eff6ff!important;border-color:#4F8BF9!important;color:#0f172a!important}"
-            "[class*='st-key-chipwrap_'] button::after{color:#64748b!important}"
-            "[class*='st-key-btn_new_chat'] button{background:#ffffff!important;border:1px solid #e2e8f0!important;color:#0f172a!important}"
-            # Agent status pill text
-            ".agent-status__label{color:#0f172a!important}"
-            ".agent-status--online .agent-status__dot{box-shadow:0 0 0 3px rgba(34,197,94,.18)}"
-            # Drill section header
-            ".drill-section h3{color:#0f172a!important}"
-            # Captions + small text
-            ".stMarkdown p,.stMarkdown li,.stCaption,small,[data-testid='stCaptionContainer']{color:#475569!important}"
-            # Pills (intent/confidence/latency)
-            ".pill{background:rgba(79,139,249,.10)!important;color:#1e40af!important}"
-            ".pill-green{background:rgba(34,197,94,.12)!important;color:#15803d!important}"
-            ".pill-amber{background:rgba(234,179,8,.14)!important;color:#854d0e!important}"
-            ".pill-red{background:rgba(239,68,68,.14)!important;color:#991b1b!important}"
-            ".pill-purple{background:rgba(168,85,247,.14)!important;color:#6b21a8!important}"
-            # Source cards
-            ".src-card{background:#ffffff!important;border:1px solid #e2e8f0!important;border-left:3px solid #4F8BF9!important;color:#0f172a!important}"
-            ".src-meta{color:#64748b!important}"
-            # Dividers
-            "hr{border-top:1px solid #e2e8f0!important;opacity:1!important}"
-        )
+    # contents so its script position stays stable across reruns.
+    _light_css = (_LIGHT_CSS_GLOBAL + _LIGHT_CSS_ADMIN) if is_light else ""
     st.markdown(f"<style>{_light_css}</style>", unsafe_allow_html=True)
 
     # Backend warmup: fire a background fetch to /health on first
@@ -1096,6 +1111,27 @@ def render_admin(sidebar_slot, main_slot):
             if st.button("Sign out", key="admin_signout"):
                 st.session_state.pop("admin_ok", None)
                 st.rerun()
+
+    # Light/Dark toggle, also rendered in the admin sidebar so users
+    # don't lose access to the theme switch when on this view. Same
+    # session_state key as the chat toggle ("_theme_light") so state
+    # persists across view switches; only one of render_chat /
+    # render_admin runs per dispatch, so the duplicate widget key is
+    # not a runtime collision.
+    with sidebar_slot:
+        _current_light = st.session_state.get("_theme_light", False)
+        _toggle_label = "☀️ Light mode" if _current_light else "🌙 Dark mode"
+        st.toggle(
+            _toggle_label,
+            key="_theme_light",
+            help="Switch between light and dark color schemes.",
+        )
+
+    is_light = st.session_state.get("_theme_light", False)
+    # Always emit a stable <style> block (empty when dark) so the script
+    # position of subsequent elements doesn't shift between renders.
+    _admin_light_css = (_LIGHT_CSS_GLOBAL + _LIGHT_CSS_ADMIN) if is_light else ""
+    st.markdown(f"<style>{_admin_light_css}</style>", unsafe_allow_html=True)
 
     with main_slot:
         if ADMIN_PASSWORD and not st.session_state.get("admin_ok"):
