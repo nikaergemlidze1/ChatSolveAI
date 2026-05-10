@@ -1022,22 +1022,25 @@ def render_admin(sidebar_slot, main_slot):
             st.divider()
 
             import altair as alt
-            left, right = st.columns([65, 35], gap="large")
+            # Equal 50/50 split gives the donut enough room for its
+            # legend at the bottom without stealing area from the line
+            # chart. Heights bumped to 420 for better visibility.
+            left, right = st.columns([1, 1], gap="large")
             with left:
                 st.subheader("Support Volume")
                 if timeseries and any(r.get("count", 0) > 0 for r in timeseries):
                     line = (
                         alt.Chart(alt.Data(values=timeseries))
                         .mark_line(
-                            point=alt.OverlayMarkDef(filled=True, size=55, color="#4F8BF9"),
-                            color="#4F8BF9", strokeWidth=2.5, interpolate="monotone",
+                            point=alt.OverlayMarkDef(filled=True, size=70, color="#4F8BF9"),
+                            color="#4F8BF9", strokeWidth=3, interpolate="monotone",
                         )
                         .encode(
-                            x=alt.X("date:T", title=None, axis=alt.Axis(labelColor="#7a8190", grid=False)),
-                            y=alt.Y("count:Q", title=None, axis=alt.Axis(labelColor="#7a8190", grid=True, gridOpacity=0.15)),
+                            x=alt.X("date:T", title=None, axis=alt.Axis(labelColor="#7a8190", labelFontSize=11, grid=False)),
+                            y=alt.Y("count:Q", title=None, axis=alt.Axis(labelColor="#7a8190", labelFontSize=11, grid=True, gridOpacity=0.15)),
                             tooltip=["date:T", "count:Q"],
                         )
-                        .properties(height=280)
+                        .properties(height=420)
                         .configure_view(strokeWidth=0)
                     )
                     st.altair_chart(line, use_container_width=True)
@@ -1048,15 +1051,15 @@ def render_admin(sidebar_slot, main_slot):
                 if intents and any(r.get("count", 0) > 0 for r in intents):
                     donut = (
                         alt.Chart(alt.Data(values=intents))
-                        .mark_arc(innerRadius=50, outerRadius=100, stroke="#0f1218", strokeWidth=2)
+                        .mark_arc(innerRadius=70, outerRadius=140, stroke="#0f1218", strokeWidth=2)
                         .encode(
                             theta=alt.Theta("count:Q"),
                             color=alt.Color("intent:N",
-                                legend=alt.Legend(title=None, orient="bottom", labelFontSize=11, columns=2, labelColor="#cdd5e0"),
+                                legend=alt.Legend(title=None, orient="bottom", labelFontSize=12, columns=3, labelColor="#cdd5e0", symbolSize=120),
                                 scale=alt.Scale(scheme="tableau10")),
                             tooltip=["intent:N", "count:Q"],
                         )
-                        .properties(height=280)
+                        .properties(height=420)
                         .configure_view(strokeWidth=0)
                     )
                     st.altair_chart(donut, use_container_width=True)
@@ -1069,12 +1072,12 @@ def render_admin(sidebar_slot, main_slot):
             with tab1:
                 top = summary.get("top_questions", [])
                 if top:
-                    st.dataframe(top, use_container_width=True, hide_index=True, height=260)
+                    st.dataframe(top, use_container_width=True, hide_index=True, height=340)
                 else:
                     st.info("No questions logged.")
             with tab2:
                 if sessions:
-                    st.dataframe(sessions, use_container_width=True, hide_index=True, height=260)
+                    st.dataframe(sessions, use_container_width=True, hide_index=True, height=340)
                 else:
                     st.info("No sessions.")
             st.caption(f"Last refreshed: {datetime.utcnow():%Y-%m-%d %H:%M UTC}")
@@ -1104,16 +1107,30 @@ if prev_view is not None and prev_view != view:
 st.session_state["_prev_view"] = view
 
 view_tag = "chat" if view == NAV_CHAT else "admin"
+inactive_tag = "admin" if view == NAV_CHAT else "chat"
 
 with st.sidebar:
     sidebar_view = st.container(key=f"view_sb_{view_tag}_{view_idx}")
 main_view = st.container(key=f"view_main_{view_tag}_{view_idx}")
 
-if view == NAV_ADMIN:
-    st.markdown(
-        "<style>[data-testid='stChatInput']{display:none !important;}</style>",
-        unsafe_allow_html=True,
-    )
+# CSS hide-by-class for the inactive view. Streamlit Cloud retains
+# the prior view's container DOM across the dispatch even with the
+# force-remount key trick (its iframe-component reconciler does not
+# unmount cleanly), so a wildcard CSS rule that targets every
+# `st-key-view_*_<inactive_tag>_*` ancestor `display:none`s any
+# leftover subtree. The active view's containers do not match the
+# inactive selector, so this is safe even when Streamlit Cloud has
+# kept multiple historical container instances mounted.
+_extra_css = "[data-testid='stChatInput']{display:none !important;}" if view == NAV_ADMIN else ""
+st.markdown(
+    f"<style>"
+    f"[class*='st-key-view_main_{inactive_tag}_'],"
+    f"[class*='st-key-view_sb_{inactive_tag}_']"
+    f"{{display:none !important;visibility:hidden !important;height:0 !important;overflow:hidden !important}}"
+    f"{_extra_css}"
+    f"</style>",
+    unsafe_allow_html=True,
+)
 
 if view == NAV_CHAT:
     render_chat(sidebar_view, main_view)
