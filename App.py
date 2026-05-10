@@ -1106,25 +1106,54 @@ with st.sidebar:
     sidebar_view = st.container(key=f"view_sb_{view_tag}")
 main_view = st.container(key=f"view_main_{view_tag}")
 
-# Hide every container whose key matches the inactive view tag.
-# Stable keys (no per-switch counter) keep view switches fast — the
-# active container is reused on revisit instead of fully remounting.
-# CSS hide catches any prior-render container Streamlit Cloud
-# retained, so the inactive view's chart iframes / Lottie /
-# warnings don't bleed through. The selector matches the exact
-# inactive key as well as any historical instance with a suffix
-# (`view_main_admin`, `view_main_admin_2`, etc.) and never matches
-# the active key (which uses the other view's tag).
-_extra_css = "[data-testid='stChatInput']{display:none !important;}" if view == NAV_ADMIN else ""
-st.markdown(
-    f"<style>"
-    f"[class*='st-key-view_main_{inactive_tag}'],"
+# Component-whitelist ghost cleanup. Each view knows the exact set
+# of widget types that ONLY ever appear in the OTHER view — when
+# this view is active, any DOM matching those selectors is by
+# definition a ghost left by Streamlit Cloud's iframe-component
+# retention. Hiding them via CSS is the only mechanism that
+# reliably catches stale DOM regardless of which keyed container
+# wrapper Streamlit decided to reparent it under.
+#
+# Chat-only widgets: category icon buttons, empty-state Lottie,
+# drill block, chip buttons, chat-message bubbles, greeting,
+# icon row, lottie-player wrap, chat input.
+#
+# Admin-only widgets: admin-grid wrapper, Vega/Altair charts,
+# the analytics metric cards (sidebar metrics were removed
+# earlier so st.metric is now admin-only), dataframes.
+HIDE = "{display:none !important;visibility:hidden !important;height:0 !important;overflow:hidden !important;position:absolute !important;left:-99999px !important}"
+if view == NAV_ADMIN:
+    ghost_css = (
+        "[class*='st-key-iconbtn_'],"
+        "[class*='st-key-empty_state_block'],"
+        "[class*='st-key-drill_block'],"
+        "[class*='st-key-chipwrap_'],"
+        "[class*='st-key-chatmsg-'],"
+        "[class*='st-key-greeting_block'],"
+        "[class*='st-key-icon_row'],"
+        "[class*='st-key-lottie_wrap'],"
+        "[data-testid='stChatInput'],"
+        "[data-testid='stChatMessage']"
+        f"{HIDE}"
+    )
+else:  # NAV_CHAT
+    ghost_css = (
+        "[class*='st-key-admin_grid'],"
+        "[data-testid='stVegaLiteChart'],"
+        "[data-testid='stArrowVegaLiteChart'],"
+        "[data-testid='stPlotlyChart'],"
+        "[data-testid='stMetric'],"
+        "[data-testid='stDataFrame']"
+        f"{HIDE}"
+    )
+# Also hide the inactive view's keyed wrapper (covers anything new
+# components add later that aren't in the whitelist above).
+ghost_css += (
+    f",[class*='st-key-view_main_{inactive_tag}'],"
     f"[class*='st-key-view_sb_{inactive_tag}']"
-    f"{{display:none !important;visibility:hidden !important;height:0 !important;overflow:hidden !important;position:absolute !important;left:-99999px !important}}"
-    f"{_extra_css}"
-    f"</style>",
-    unsafe_allow_html=True,
+    f"{HIDE}"
 )
+st.markdown(f"<style>{ghost_css}</style>", unsafe_allow_html=True)
 
 if view == NAV_CHAT:
     render_chat(sidebar_view, main_view)
