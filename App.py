@@ -7,7 +7,7 @@ folding both views into one script eliminates that class of bug entirely.
 """
 
 from __future__ import annotations
-import base64, json, os, time, uuid
+import base64, hmac, json, os, time, uuid
 from datetime import datetime
 from functools import lru_cache
 import requests, streamlit as st
@@ -37,7 +37,10 @@ def _img_b64_cached(path: str, mtime: float) -> str:
         return base64.b64encode(f.read()).decode()
 
 def _img_b64(path: str) -> str:
-    # Include mtime in cache key so updated images bust the cache.
+    # SECURITY: callers must pass a hard-coded asset path under logo/.
+    # Never pass user-supplied paths — open() would happily serve any
+    # readable file via the base64-in-CSS channel.
+    # mtime in the lru_cache key busts the cache when an asset changes.
     return _img_b64_cached(path, os.path.getmtime(path))
 
 load_dotenv()
@@ -50,7 +53,7 @@ try:
     _SECRET_API_URL = st.secrets.get("API_URL")
     _SECRET_API_KEY = st.secrets.get("API_KEY")
     _SECRET_ADMIN_PW = st.secrets.get("ADMIN_PASSWORD")
-except: pass
+except Exception: pass
 
 API_URL = (_SECRET_API_URL or os.getenv("API_URL") or "https://Nikollass-chatsolveai-api.hf.space").rstrip("/")
 API_KEY = _SECRET_API_KEY or os.getenv("API_KEY") or ""
@@ -112,6 +115,26 @@ def _on_theme_toggle():
     except Exception:
         pass
 
+# View persistence: `?view=admin|chat` deep-link. Init runs once per session,
+# before the nav radio is created so its default state matches the URL.
+NAV_CHAT, NAV_ADMIN = "💬 Chat", "📊 Admin Dashboard"
+if "_view_initialized" not in st.session_state:
+    try:
+        _qp_view = st.query_params.get("view")
+        if _qp_view == "admin":
+            st.session_state["nav_view"] = NAV_ADMIN
+        elif _qp_view == "chat":
+            st.session_state["nav_view"] = NAV_CHAT
+    except Exception:
+        pass
+    st.session_state["_view_initialized"] = True
+
+def _on_view_change():
+    try:
+        st.query_params["view"] = "admin" if st.session_state.get("nav_view") == NAV_ADMIN else "chat"
+    except Exception:
+        pass
+
 # ══════════════════════════════════════════════
 # CSS
 # ══════════════════════════════════════════════
@@ -150,7 +173,7 @@ body{font-weight:400}
 [data-testid='stButton'] button,[data-testid='stDownloadButton'] button{transition:background-color .15s ease,border-color .15s ease,transform .12s ease,box-shadow .15s ease!important}
 [class*='st-key-btn_new_chat'] button:hover,[data-testid='stDownloadButton'] button:hover,[class*='st-key-up_'] button:hover,[class*='st-key-down_'] button:hover,[class*='st-key-regen_'] button:hover,[class*='st-key-admin_signout'] button:hover{transform:translateY(-1px) scale(1.02);box-shadow:0 4px 12px rgba(79,139,249,.18);border-color:#4F8BF9!important}
 [class*='st-key-btn_new_chat'] button:active,[data-testid='stDownloadButton'] button:active,[class*='st-key-up_'] button:active,[class*='st-key-down_'] button:active,[class*='st-key-regen_'] button:active{transform:translateY(0) scale(.98)}
-[data-testid='stChatInput'] textarea,[data-baseweb='input'] input{transition:all .3s ease!important}
+[data-testid='stChatInput'] textarea,[data-baseweb='input'] input{transition:all .3s ease!important;font-size:15px!important;line-height:1.55!important}
 [data-testid='stChatInput']:focus-within,[data-baseweb='input']:focus-within{box-shadow:0 0 15px rgba(79,139,249,.20)!important;border-color:#4F8BF9!important;border-radius:14px!important}
 [data-testid='stChatInput'] textarea:focus,[data-baseweb='input'] input:focus{outline:none!important}
 [data-testid='stMain'] .block-container{max-width:1100px!important;margin-left:auto!important;margin-right:auto!important}
@@ -255,6 +278,11 @@ a:hover{color:var(--accent)}
 @keyframes sidebarSlide{from{transform:translateX(-30px);opacity:0}to{transform:translateX(0);opacity:1}}
 @media (prefers-reduced-motion: reduce){.drill-section,.drill-section h3,[class*='st-key-chipwrap_'],[class*='st-key-chipwrap_'] button::after,[data-testid='stChatMessage'],[class*='st-key-chatmsg-user'] [data-testid='stChatMessage'],[class*='st-key-chatmsg-asst'] [data-testid='stChatMessage'],.typing-dots span,.pill,.page-entry-1,.page-entry-2,.page-entry-3,.sidebar-entry [data-testid='stSidebar'],[data-testid='stButton'] button,[data-testid='stDownloadButton'] button,[data-testid='stChatInput'],[data-testid='stAppViewContainer']::before,.agent-status--online .agent-status__dot{animation:none!important;opacity:1!important;transform:none!important;transition:none!important}[class*='st-key-chipwrap_'] button::after{transform:translateY(-50%)!important}}
 #MainMenu,footer{visibility:hidden}
+/* Sidebar cohesion: agent-status pill, new-chat button, and theme toggle
+ * sit inside a single visual group via a soft inset box-shadow on their
+ * common ancestor (st-key-view_sb_chat / _admin container). Pure CSS,
+ * no DOM additions. */
+[class*='st-key-view_sb_chat'] .agent-status,[class*='st-key-view_sb_chat'] [class*='st-key-btn_new_chat']{box-shadow:0 1px 0 rgba(255,255,255,.02) inset,0 1px 2px rgba(0,0,0,.10)}
 </style>""", unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════
@@ -262,7 +290,7 @@ a:hover{color:var(--accent)}
 # ══════════════════════════════════════════════
 def _session_id_from_url():
     try: sid = st.query_params.get("sid")
-    except: return None
+    except Exception: return None
     if isinstance(sid, list): sid = sid[0] if sid else None
     return str(sid).strip() if sid and len(str(sid))<=128 else None
 
@@ -270,7 +298,7 @@ def _sync_session_url():
     try:
         if st.query_params.get("sid") != st.session_state.session_id:
             st.query_params["sid"] = st.session_state.session_id
-    except: pass
+    except Exception: pass
 
 def _adopt_url_session():
     url_id = _session_id_from_url()
@@ -357,7 +385,12 @@ st.markdown(f"<style>{''.join(_ICON_CSS_RULES)}</style>", unsafe_allow_html=True
 # label is kept in the DOM for accessibility but visually hidden. Same trick
 # the category icon buttons use; emitted once at module load.
 # ──────────────────────────────────────────────────────────────────────────────
-_NEW_CHAT_LOGO_B64 = _img_b64("logo/new_chat_logo.png")
+# Two variants: light-mode logo keeps dark text (reads on cream), dark-mode
+# logo has off-white text (reads on dark mesh background). Default <style>
+# block at module load uses the dark variant; _LIGHT_CSS_GLOBAL overrides
+# the background-image when the theme toggle is on.
+_NEW_CHAT_LOGO_B64 = _img_b64("logo/new_chat_logo_dark.png")
+_NEW_CHAT_LOGO_LIGHT_B64 = _img_b64("logo/new_chat_logo.png")
 # The PNG itself contains a rounded white pill, so the cleanest visual is
 # to drop the surrounding button chrome (border + background + box-shadow)
 # and let the logo BE the button. Hover applies a subtle lift + glow via
@@ -457,10 +490,13 @@ _LIGHT_CSS_GLOBAL = (
     "[class*='st-key-chipwrap_'] button{background:#fffefa!important;border:1px solid #ece5d6!important;color:#1c1917!important}"
     "[class*='st-key-chipwrap_'] button:hover{background:#f5ede0!important;border-color:#4F8BF9!important;color:#1c1917!important}"
     "[class*='st-key-chipwrap_'] button::after{color:#8a8378!important}"
-    # New-chat button is intentionally chromeless in both modes (the
-    # logo PNG carries its own pill). Keep background transparent and
-    # boost the hover drop-shadow tint on the warm cream background.
-    "[class*='st-key-btn_new_chat'] button{background-color:transparent!important;border:none!important}"
+    # New-chat button: keep chromeless, but swap to the dark-text logo
+    # variant (no white pill, original text colors) so it reads on the
+    # warm cream background. Hover gets a deeper-blue drop-shadow.
+    "[class*='st-key-btn_new_chat'] button{"
+    f"background-image:url('data:image/png;base64,{_NEW_CHAT_LOGO_LIGHT_B64}')!important;"
+    "background-color:transparent!important;border:none!important"
+    "}"
     "[class*='st-key-btn_new_chat'] button:hover{background-color:transparent!important;border:none!important;filter:brightness(1.02) drop-shadow(0 4px 12px rgba(29,78,216,.22))!important}"
     # Sidebar agent status
     ".agent-status{background:#fffefa!important;border:1px solid #ece5d6!important}"
@@ -528,7 +564,7 @@ def api_health():
         try:
             r = requests.get(f"{API_URL}/health",timeout=HEALTH_TIMEOUT_S)
             if r.ok: return True
-        except: pass
+        except Exception: pass
         time.sleep(2)
     return False
 
@@ -538,7 +574,7 @@ def call_chat(query):
             r = requests.post(f"{API_URL}/chat",json={"session_id":st.session_state.session_id,"query":query},headers=_api_headers(),timeout=60)
             if r.ok: return r.json()
             if 500<=r.status_code<600 and attempt==0: time.sleep(3); continue
-        except: time.sleep(3)
+        except Exception: time.sleep(3)
     return None
 
 def call_chat_stream(query, output_box=None):
@@ -551,7 +587,7 @@ def call_chat_stream(query, output_box=None):
                 payload = line.removeprefix("data:").strip()
                 if payload=="[DONE]": break
                 try: ev = json.loads(payload)
-                except: continue
+                except Exception: continue
                 if "token" in ev:
                     parts.append(ev["token"])
                     if output_box: output_box.markdown("".join(parts))
@@ -569,14 +605,14 @@ def call_suggest(answer):
     try:
         r = requests.post(f"{API_URL}/suggest",json={"last_answer":answer,"n":3},headers=_api_headers(),timeout=25)
         if r.ok: return r.json().get("suggestions",[])
-    except: pass
+    except Exception: pass
     return []
 
 def call_feedback(q,a,rating):
     try:
         r = requests.post(f"{API_URL}/feedback",json={"session_id":st.session_state.session_id,"query":q,"answer":a,"rating":rating},headers=_api_headers(),timeout=10)
         return r.ok
-    except: return False
+    except Exception: return False
 
 @st.cache_data(ttl=30, show_spinner=False)
 def _fetch_admin(path):
@@ -751,7 +787,7 @@ def submit_query(query, append_user=True):
 
 def _perform_full_reset():
     try: st.query_params.clear()
-    except: pass
+    except Exception: pass
     api_health.clear()
     st.session_state["session_id"] = str(uuid.uuid4())
     st.session_state["conv_id"] = str(uuid.uuid4())[:8]
@@ -1285,10 +1321,17 @@ def render_admin(sidebar_slot, main_slot):
         if ADMIN_PASSWORD and not st.session_state.get("admin_ok"):
             with st.form("admin_login"):
                 pw = st.text_input("Admin password", type="password")
-                if st.form_submit_button("Sign in") and pw == ADMIN_PASSWORD:
+                # hmac.compare_digest defeats timing-based password
+                # probing by ensuring the comparison runs in constant
+                # time regardless of how many leading characters match.
+                submitted = st.form_submit_button("Sign in")
+                if submitted and hmac.compare_digest(
+                    (pw or "").encode("utf-8"),
+                    ADMIN_PASSWORD.encode("utf-8"),
+                ):
                     st.session_state["admin_ok"] = True
                     st.rerun()
-                if pw and pw != ADMIN_PASSWORD:
+                if pw and submitted:
                     st.error("Invalid password.")
             return
 
@@ -1483,9 +1526,14 @@ def render_admin(sidebar_slot, main_slot):
 # pattern that reliably defeats Streamlit Cloud's iframe-component
 # DOM retention across reruns.
 # ══════════════════════════════════════════════
-NAV_CHAT, NAV_ADMIN = "💬 Chat", "📊 Admin Dashboard"
 with st.sidebar:
-    view = st.radio("View", [NAV_CHAT, NAV_ADMIN], key="nav_view", label_visibility="collapsed")
+    view = st.radio(
+        "View",
+        [NAV_CHAT, NAV_ADMIN],
+        key="nav_view",
+        label_visibility="collapsed",
+        on_change=_on_view_change,
+    )
     st.divider()
 
 view_tag = "chat" if view == NAV_CHAT else "admin"
