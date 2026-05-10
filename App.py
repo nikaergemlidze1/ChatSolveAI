@@ -88,6 +88,30 @@ except ImportError:
 st.set_page_config(page_title="Customer Support AI", page_icon="logo/Logo.png", layout="wide",
                    initial_sidebar_state="expanded")
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Theme persistence: read `?theme=light|dark` from URL on the first render of
+# a session, so a returning user (or a shared deep-link) lands in their
+# preferred mode. Must run BEFORE any toggle widget is created so its
+# default state matches the URL.
+# ──────────────────────────────────────────────────────────────────────────────
+if "_theme_initialized" not in st.session_state:
+    try:
+        _qp_theme = st.query_params.get("theme")
+        if _qp_theme in ("light", "dark"):
+            st.session_state["_theme_light"] = (_qp_theme == "light")
+    except Exception:
+        pass
+    st.session_state["_theme_initialized"] = True
+
+def _on_theme_toggle():
+    """on_change callback for the Light/Dark toggle. Writes the new
+    state back to the URL so a refresh preserves it. Same callback is
+    wired to both render_chat and render_admin's toggle widgets."""
+    try:
+        st.query_params["theme"] = "light" if st.session_state.get("_theme_light") else "dark"
+    except Exception:
+        pass
+
 # ══════════════════════════════════════════════
 # CSS
 # ══════════════════════════════════════════════
@@ -385,8 +409,9 @@ _LIGHT_CSS_GLOBAL = (
     "[data-testid='stSidebarNav'] a{color:#1c1917!important}"
     "[data-testid='stSidebarNav'] a:hover{background:#f1e9d6!important;color:#1c1917!important}"
     "[data-testid='stSidebarNav'] a[aria-current='page']{background:#e8dfc7!important;color:#1c1917!important}"
-    # Hero
-    ".hero-title{filter:none!important;-webkit-background-clip:text!important;background-clip:text!important}"
+    # Hero — keep brand gradient on the title, but use deeper colors
+    # that read clearly against the warm cream background.
+    ".hero-title{background:linear-gradient(90deg,#1d4ed8 0%,#7c3aed 100%)!important;-webkit-background-clip:text!important;background-clip:text!important;-webkit-text-fill-color:transparent!important;color:transparent!important;filter:none!important}"
     ".hero-sub{color:#6b6357!important}"
     ".page-entry-3 strong,.page-entry-3{color:#1c1917!important}"
     # Chat input — broaden selectors so the BaseWeb wrapper (the dark
@@ -533,18 +558,43 @@ def call_feedback(q,a,rating):
 def _fetch_admin(path):
     """Fetch admin endpoint with exponential-backoff retry. Handles
     HuggingFace Spaces cold-start delays (the backend can take 20-60s
-    to wake from sleep). Three attempts: immediate, +2s, +5s."""
+    to wake from sleep). Three attempts: immediate, +2s, +5s.
+
+    Wraps the call in a Sentry breadcrumb (when DSN configured) so
+    slow analytics endpoints surface in error reports without
+    dragging Streamlit's normal logging into Sentry's noisy default
+    capture."""
     last_exc = None
+    t0 = time.perf_counter()
+    attempts = 0
     for delay in (0, 2, 5):
         if delay:
             time.sleep(delay)
+        attempts += 1
         try:
             r = requests.get(f"{API_URL}{path}", headers=_api_headers(), timeout=25)
             r.raise_for_status()
+            _record_admin_breadcrumb(path, t0, attempts, ok=True)
             return r.json()
         except Exception as e:
             last_exc = e
+    _record_admin_breadcrumb(path, t0, attempts, ok=False, exc=last_exc)
     raise last_exc if last_exc else RuntimeError(f"fetch failed: {path}")
+
+
+def _record_admin_breadcrumb(path, t0, attempts, ok, exc=None):
+    try:
+        import sentry_sdk as _ss  # local import: silently skipped if not installed
+        ms = int((time.perf_counter() - t0) * 1000)
+        _ss.add_breadcrumb(
+            category="admin_fetch",
+            level="info" if ok else "warning",
+            message=path,
+            data={"latency_ms": ms, "attempts": attempts, "ok": ok,
+                  "error": repr(exc) if exc else None},
+        )
+    except Exception:
+        pass
 
 # ══════════════════════════════════════════════
 # Chat callbacks & render helpers
@@ -745,6 +795,7 @@ def render_chat(sidebar_slot, main_slot):
             _toggle_label,
             key="_theme_light",
             help="Switch between light and dark color schemes.",
+            on_change=_on_theme_toggle,
         )
 
     # First-render flag drives the page-entry stagger animations (#3.F)
@@ -1197,6 +1248,7 @@ def render_admin(sidebar_slot, main_slot):
             _toggle_label,
             key="_theme_light",
             help="Switch between light and dark color schemes.",
+            on_change=_on_theme_toggle,
         )
 
     is_light = st.session_state.get("_theme_light", False)
@@ -1414,6 +1466,16 @@ with st.sidebar:
 
 view_tag = "chat" if view == NAV_CHAT else "admin"
 inactive_tag = "admin" if view == NAV_CHAT else "chat"
+
+# Tag the active view on Sentry's current scope so issues are easy
+# to filter by where they occurred. No-op when Sentry isn't installed
+# or DSN is not configured.
+try:
+    import sentry_sdk as _ss
+    _ss.set_tag("view", view_tag)
+    _ss.set_tag("theme", "light" if st.session_state.get("_theme_light") else "dark")
+except Exception:
+    pass
 
 with st.sidebar:
     sidebar_view = st.container(key=f"view_sb_{view_tag}")
