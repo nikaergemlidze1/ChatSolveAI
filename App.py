@@ -334,62 +334,101 @@ st.markdown(f"<style>{''.join(_ICON_CSS_RULES)}</style>", unsafe_allow_html=True
 #   _LIGHT_CSS_ADMIN  — admin-grid specific overrides (metric cards, tabs,
 #                        dataframes, refresh button, captions).
 # ──────────────────────────────────────────────────────────────────────────────
+# Warm light palette (replaces earlier cool #f5f7fb / #ffffff scheme):
+#   page    #faf6ee  - warm cream, easier on eyes than pure white
+#   sidebar #fffdf7  - subtle paper tint
+#   surface #fffefa  - cards, chat input, message bubbles
+#   border  #ece5d6  - warm beige border
+#   text    #1c1917 (primary) / #6b6357 (secondary)
+#   accent  #4F8BF9 (unchanged so brand colors stay consistent)
 _LIGHT_CSS_GLOBAL = (
-    "[data-testid='stApp'],[data-testid='stMain'],[data-testid='stAppViewContainer'],.main{background:#f5f7fb!important;color:#0f172a!important}"
+    # Page surfaces + the Streamlit top header bar (was leaving a black
+    # band above the content area).
+    "[data-testid='stApp'],[data-testid='stMain'],[data-testid='stAppViewContainer'],.main{background:#faf6ee!important;color:#1c1917!important}"
+    "[data-testid='stHeader']{background:#faf6ee!important;border-bottom:1px solid #ece5d6!important}"
+    "[data-testid='stToolbar']{background:transparent!important}"
+    "[data-testid='stToolbar'] *{color:#1c1917!important}"
     "[data-testid='stApp']::before,[data-testid='stAppViewContainer']::before,[data-testid='stMain']::before{display:none!important;background:none!important;animation:none!important;opacity:0!important}"
-    "[data-testid='stSidebar']{background:#ffffff!important;border-right:1px solid #e2e8f0!important;backdrop-filter:none!important}"
-    "[data-testid='stSidebar'] *{color:#0f172a!important}"
-    "[data-testid='stSidebarNav'] a{color:#0f172a!important}"
-    "[data-testid='stSidebarNav'] a:hover{background:#eef2ff!important;color:#1e293b!important}"
-    "[data-testid='stSidebarNav'] a[aria-current='page']{background:#dbeafe!important;color:#1e3a8a!important}"
+    # Sidebar
+    "[data-testid='stSidebar']{background:#fffdf7!important;border-right:1px solid #ece5d6!important;backdrop-filter:none!important}"
+    "[data-testid='stSidebar'] *{color:#1c1917!important}"
+    "[data-testid='stSidebarNav'] a{color:#1c1917!important}"
+    "[data-testid='stSidebarNav'] a:hover{background:#f1e9d6!important;color:#1c1917!important}"
+    "[data-testid='stSidebarNav'] a[aria-current='page']{background:#e8dfc7!important;color:#1c1917!important}"
+    # Hero
     ".hero-title{filter:none!important;-webkit-background-clip:text!important;background-clip:text!important}"
-    ".hero-sub{color:#475569!important}"
-    ".page-entry-3 strong,.page-entry-3{color:#0f172a!important}"
-    "[data-testid='stChatInput']{background:#ffffff!important;border:1px solid #cbd5e1!important;box-shadow:0 1px 3px rgba(15,23,42,.06)}"
-    "[data-testid='stChatInput'] textarea{color:#0f172a!important;background:#fff!important}"
-    "[data-testid='stChatInput'] textarea::placeholder{color:#64748b!important}"
-    "[data-testid='stChatMessage']{background:#ffffff!important;border:1px solid #e2e8f0!important;color:#0f172a!important}"
-    "[data-testid='stChatMessage'] *{color:#0f172a!important}"
+    ".hero-sub{color:#6b6357!important}"
+    ".page-entry-3 strong,.page-entry-3{color:#1c1917!important}"
+    # Chat input — broaden selectors so the BaseWeb wrapper (the dark
+    # band visible around the textarea) gets the warm surface too.
+    "[data-testid='stChatInput'],[data-testid='stChatInput'] > div,[data-testid='stChatInput'] [data-baseweb='base-input'],[data-testid='stChatInput'] [data-baseweb='textarea']{background:#fffefa!important;border-color:#ece5d6!important;box-shadow:0 1px 3px rgba(28,25,23,.05)}"
+    "[data-testid='stChatInput']{border:1px solid #ece5d6!important;border-radius:14px!important}"
+    "[data-testid='stChatInput'] textarea{color:#1c1917!important;background:#fffefa!important;caret-color:#1c1917!important}"
+    "[data-testid='stChatInput'] textarea::placeholder{color:#8a8378!important}"
+    "[data-testid='stChatInput'] button{background:#f5ede0!important;border:1px solid #ece5d6!important;color:#1c1917!important}"
+    "[data-testid='stChatInput'] button:hover{background:#ebe1ce!important;border-color:#4F8BF9!important}"
+    "[data-testid='stChatInput'] button svg{fill:#1c1917!important;color:#1c1917!important}"
+    # Chat message bubbles
+    "[data-testid='stChatMessage']{background:#fffefa!important;border:1px solid #ece5d6!important;color:#1c1917!important}"
+    "[data-testid='stChatMessage'] *{color:#1c1917!important}"
+    "[class*='st-key-chatmsg-user'] [data-testid='stChatMessage']{background:#eef4ff!important;border-color:#cdddfb!important;border-left:3px solid #4F8BF9!important}"
+    "[class*='st-key-chatmsg-asst'] [data-testid='stChatMessage']{background:#fffefa!important;border-color:#ece5d6!important;border-left:3px solid #d6cdb8!important}"
     # Use background-color (not the `background` shorthand) so the category
     # icon's background-image set at module load survives.
-    "[class*='st-key-iconbtn_'] button{background-color:#ffffff!important;border:1px solid #e2e8f0!important;color:#0f172a!important;box-shadow:0 1px 3px rgba(15,23,42,.06)}"
-    "[class*='st-key-iconbtn_'] button:hover{background-color:#eff6ff!important;border-color:#4F8BF9!important}"
-    "[class*='st-key-chipwrap_'] button{background:#ffffff!important;border:1px solid #e2e8f0!important;color:#0f172a!important}"
-    "[class*='st-key-chipwrap_'] button:hover{background:#eff6ff!important;border-color:#4F8BF9!important;color:#0f172a!important}"
-    "[class*='st-key-chipwrap_'] button::after{color:#64748b!important}"
-    "[class*='st-key-btn_new_chat'] button{background:#ffffff!important;border:1px solid #e2e8f0!important;color:#0f172a!important}"
-    ".agent-status__label{color:#0f172a!important}"
+    "[class*='st-key-iconbtn_'] button{background-color:#fffefa!important;border:1px solid #ece5d6!important;color:#1c1917!important;box-shadow:0 1px 3px rgba(28,25,23,.05)}"
+    "[class*='st-key-iconbtn_'] button:hover{background-color:#f5ede0!important;border-color:#4F8BF9!important}"
+    "[class*='st-key-chipwrap_'] button{background:#fffefa!important;border:1px solid #ece5d6!important;color:#1c1917!important}"
+    "[class*='st-key-chipwrap_'] button:hover{background:#f5ede0!important;border-color:#4F8BF9!important;color:#1c1917!important}"
+    "[class*='st-key-chipwrap_'] button::after{color:#8a8378!important}"
+    "[class*='st-key-btn_new_chat'] button{background:#fffefa!important;border:1px solid #ece5d6!important;color:#1c1917!important}"
+    "[class*='st-key-btn_new_chat'] button:hover{background:#f5ede0!important;border-color:#4F8BF9!important}"
+    # Sidebar agent status
+    ".agent-status{background:#fffefa!important;border:1px solid #ece5d6!important}"
+    ".agent-status__label{color:#1c1917!important}"
     ".agent-status--online .agent-status__dot{box-shadow:0 0 0 3px rgba(34,197,94,.18)}"
-    ".drill-section h3{color:#0f172a!important}"
-    ".stMarkdown p,.stMarkdown li,.stCaption,small,[data-testid='stCaptionContainer']{color:#475569!important}"
+    # Drill section header
+    ".drill-section h3{color:#1c1917!important}"
+    # Captions + small text
+    ".stMarkdown p,.stMarkdown li,.stCaption,small,[data-testid='stCaptionContainer']{color:#6b6357!important}"
+    # Pills
     ".pill{background:rgba(79,139,249,.10)!important;color:#1e40af!important}"
     ".pill-green{background:rgba(34,197,94,.12)!important;color:#15803d!important}"
     ".pill-amber{background:rgba(234,179,8,.14)!important;color:#854d0e!important}"
     ".pill-red{background:rgba(239,68,68,.14)!important;color:#991b1b!important}"
     ".pill-purple{background:rgba(168,85,247,.14)!important;color:#6b21a8!important}"
-    ".src-card{background:#ffffff!important;border:1px solid #e2e8f0!important;border-left:3px solid #4F8BF9!important;color:#0f172a!important}"
-    ".src-meta{color:#64748b!important}"
-    "hr{border-top:1px solid #e2e8f0!important;opacity:1!important}"
-    "[class*='st-key-admin_signout'] button{background:#ffffff!important;border:1px solid #e2e8f0!important;color:#0f172a!important}"
+    # Source cards
+    ".src-card{background:#fffefa!important;border:1px solid #ece5d6!important;border-left:3px solid #4F8BF9!important;color:#1c1917!important}"
+    ".src-meta{color:#6b6357!important}"
+    # Dividers
+    "hr{border-top:1px solid #ece5d6!important;opacity:1!important}"
+    # Sign-out button (admin sidebar)
+    "[class*='st-key-admin_signout'] button{background:#fffefa!important;border:1px solid #ece5d6!important;color:#1c1917!important}"
+    # Scrollbars
+    "*::-webkit-scrollbar-track{background:#f1e9d6!important}"
+    "*::-webkit-scrollbar-thumb{background:#d6cdb8!important;border:1px solid #ece5d6!important}"
+    "*::-webkit-scrollbar-thumb:hover{background:#bfb59c!important}"
 )
 
 _LIGHT_CSS_ADMIN = (
-    ".st-key-admin_grid [data-testid='stMetric']{background:#ffffff!important;border:1px solid #e2e8f0!important;backdrop-filter:none!important;box-shadow:0 1px 3px rgba(15,23,42,.05)}"
+    ".st-key-admin_grid [data-testid='stMetric']{background:#fffefa!important;border:1px solid #ece5d6!important;backdrop-filter:none!important;box-shadow:0 1px 3px rgba(28,25,23,.05)}"
     ".st-key-admin_grid [data-testid='stMetric']:hover{box-shadow:0 6px 20px rgba(79,139,249,.10)!important;border-color:rgba(79,139,249,.35)!important}"
-    ".st-key-admin_grid [data-testid='stMetricLabel'],.st-key-admin_grid [data-testid='stMetricLabel'] *{color:#475569!important}"
-    ".st-key-admin_grid [data-testid='stMetricValue'],.st-key-admin_grid [data-testid='stMetricValue'] *{color:#0f172a!important;text-shadow:none!important}"
-    ".st-key-admin_grid h1,.st-key-admin_grid h2,.st-key-admin_grid h3{color:#0f172a!important}"
-    ".st-key-admin_grid [data-testid='stTabs'] button[role='tab']{color:#475569!important}"
-    ".st-key-admin_grid [data-testid='stTabs'] button[role='tab'][aria-selected='true']{color:#0f172a!important}"
-    ".st-key-admin_grid [data-testid='stTabs'] [data-baseweb='tab-list']{border-bottom:1px solid #e2e8f0!important}"
-    ".st-key-admin_grid [data-baseweb='select']>div{background:#ffffff!important;border:1px solid #cbd5e1!important;color:#0f172a!important}"
-    ".st-key-admin_grid [data-baseweb='select'] *{color:#0f172a!important}"
-    ".st-key-admin_grid label,.st-key-admin_grid [data-testid='stWidgetLabel']{color:#475569!important}"
-    ".st-key-admin_grid [data-testid='stButton'] button{background:#ffffff!important;border:1px solid #e2e8f0!important;color:#0f172a!important}"
-    ".st-key-admin_grid [data-testid='stButton'] button:hover{background:#eff6ff!important;border-color:#4F8BF9!important}"
-    ".st-key-admin_grid [data-testid='stDataFrame']{background:#ffffff!important;border:1px solid #e2e8f0!important;border-radius:10px!important}"
-    ".st-key-admin_grid [data-testid='stDataFrame'] *{color:#0f172a!important}"
-    ".st-key-admin_grid [data-testid='stCaptionContainer']{color:#64748b!important}"
+    ".st-key-admin_grid [data-testid='stMetricLabel'],.st-key-admin_grid [data-testid='stMetricLabel'] *{color:#6b6357!important}"
+    ".st-key-admin_grid [data-testid='stMetricValue'],.st-key-admin_grid [data-testid='stMetricValue'] *{color:#1c1917!important;text-shadow:none!important}"
+    ".st-key-admin_grid h1,.st-key-admin_grid h2,.st-key-admin_grid h3{color:#1c1917!important}"
+    ".st-key-admin_grid [data-testid='stTabs'] button[role='tab']{color:#6b6357!important}"
+    ".st-key-admin_grid [data-testid='stTabs'] button[role='tab'][aria-selected='true']{color:#1c1917!important}"
+    ".st-key-admin_grid [data-testid='stTabs'] [data-baseweb='tab-list']{border-bottom:1px solid #ece5d6!important}"
+    ".st-key-admin_grid [data-baseweb='select']>div{background:#fffefa!important;border:1px solid #ece5d6!important;color:#1c1917!important}"
+    ".st-key-admin_grid [data-baseweb='select'] *{color:#1c1917!important}"
+    ".st-key-admin_grid label,.st-key-admin_grid [data-testid='stWidgetLabel']{color:#6b6357!important}"
+    ".st-key-admin_grid [data-testid='stButton'] button{background:#fffefa!important;border:1px solid #ece5d6!important;color:#1c1917!important}"
+    ".st-key-admin_grid [data-testid='stButton'] button:hover{background:#f5ede0!important;border-color:#4F8BF9!important}"
+    ".st-key-admin_grid [data-testid='stDataFrame']{background:#fffefa!important;border:1px solid #ece5d6!important;border-radius:10px!important}"
+    ".st-key-admin_grid [data-testid='stDataFrame'] *{color:#1c1917!important}"
+    ".st-key-admin_grid [data-testid='stCaptionContainer']{color:#6b6357!important}"
+    # Slider track + thumb (Rows to show)
+    ".st-key-admin_grid [data-testid='stSlider'] [data-baseweb='slider'] div[role='progressbar']{background:#cdddfb!important}"
+    ".st-key-admin_grid [data-testid='stSlider'] [data-baseweb='slider'] div[role='slider']{background:#4F8BF9!important;border:2px solid #fffefa!important}"
 )
 
 def _init_state():
