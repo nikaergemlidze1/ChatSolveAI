@@ -91,6 +91,15 @@ except ImportError:
 st.set_page_config(page_title="Customer Support AI", page_icon="logo/Logo.png", layout="wide",
                    initial_sidebar_state="expanded")
 
+# Anti-flash: paint a dark background on <html>/<body> BEFORE the main
+# stylesheet (with its fonts + heavy selectors) parses, so first paint
+# never shows the default white. Tiny inline style; emitted at fixed
+# top-of-script position so the element identity is stable across reruns.
+st.markdown(
+    "<style>html,body,[data-testid='stApp']{background-color:#0E1117}</style>",
+    unsafe_allow_html=True,
+)
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Theme persistence: read `?theme=light|dark` from URL on the first render of
 # a session, so a returning user (or a shared deep-link) lands in their
@@ -302,7 +311,325 @@ a:hover{color:var(--accent)}
 @media (prefers-reduced-data: reduce){
   [data-testid='stAppViewContainer']::before{animation:none!important;background:linear-gradient(180deg,#0E1117 0%,#161A23 60%,#1E293B 100%)!important}
 }
+/* Smooth theme transition: when the light-mode CSS block injects or
+ * retracts, animate the swap on top-level surfaces. Selector list is
+ * narrow so we don't accidentally fade interactive states. */
+[data-testid='stApp'],[data-testid='stSidebar'],[data-testid='stChatMessage'],.src-card,.agent-status,[data-testid='stChatInput'],[data-testid='stChatInput'] textarea,.pill,[data-testid='stHeader']{
+  transition:background-color .25s ease, color .25s ease, border-color .25s ease, box-shadow .25s ease !important;
+}
+/* Focus-visible polish: keyboard nav gets a clear 2px accent ring on
+ * every interactive surface. Mouse clicks don't trigger this (uses
+ * :focus-visible, not :focus), so it stays out of the way for pointer
+ * users while remaining accessible. */
+[class*='st-key-iconbtn_'] button:focus-visible,[class*='st-key-chipwrap_'] button:focus-visible,[class*='st-key-up_'] button:focus-visible,[class*='st-key-down_'] button:focus-visible,[class*='st-key-regen_'] button:focus-visible,[class*='st-key-edit_user_'] button:focus-visible,[class*='st-key-admin_signout'] button:focus-visible,[data-testid='stChatInput'] button:focus-visible,[data-testid='stCodeCopyButton']:focus-visible,[data-testid='stExpander'] summary:focus-visible{
+  outline:2px solid #4F8BF9 !important;outline-offset:3px !important;border-radius:10px !important;
+}
+/* Mobile safe-area: respect iPhone home-bar / notch by padding the
+ * chat input. env() falls back to 8px when no safe-area is exposed. */
+[data-testid='stChatInput']{padding-bottom:max(0px,env(safe-area-inset-bottom))}
+@media (max-width: 768px){
+  [data-testid='stChatInput']{margin-bottom:max(8px,env(safe-area-inset-bottom))!important}
+}
+/* Connection quality classes on the agent-status pill. Three colors
+ * grade the dot by recent p50 latency: <1.2s green, <3s amber, else red.
+ * Reuses existing .agent-status--online keyframe; only the dot color +
+ * pill text accent changes. */
+.agent-status--medium .agent-status__dot{background:#facc15;box-shadow:0 0 0 3px rgba(250,204,21,.20),0 0 10px rgba(250,204,21,.55);animation:dotPulse 1.6s ease-in-out infinite}
+.agent-status--medium .agent-status__label{color:#fde68a}
+.agent-status--poor .agent-status__dot{background:#fb923c;box-shadow:0 0 0 3px rgba(251,146,60,.20),0 0 10px rgba(251,146,60,.55);animation:dotPulse 1.6s ease-in-out infinite}
+.agent-status--poor .agent-status__label{color:#fed7aa}
+/* Per-message animation gate: when a previously-rendered message is
+ * re-rendered (e.g., during a streaming rerun), suppress the slide-in
+ * keyframe so only the new bubble animates. The Python layer sets
+ * .msg-static on every container whose index already appears in
+ * _animated_msgs; first-time mounts get the default animation. */
+[class*='st-key-chatmsg-'] .msg-static[data-testid='stChatMessage'],[class*='st-key-chatmsg-'].msg-static [data-testid='stChatMessage']{animation:none!important}
+/* Edit-pencil button on user bubbles: tiny chromeless 24px square,
+ * appears top-right of the bubble on hover. Reuses existing focus
+ * outline + transition tokens. */
+[class*='st-key-edit_user_'] button{
+  min-height:24px!important;height:24px!important;padding:0 8px!important;
+  font-size:.72rem!important;background:transparent!important;
+  border:1px solid rgba(255,255,255,.10)!important;color:#9ea3b0!important;
+  border-radius:8px!important;
+}
+[class*='st-key-edit_user_'] button:hover{
+  background:rgba(79,139,249,.12)!important;border-color:#4F8BF9!important;color:#E5E7EB!important;
+}
+/* Conversation summary chip row */
+.conv-summary{display:flex;flex-wrap:wrap;gap:6px;margin:4px 0 12px;align-items:center}
+.conv-summary .pill{margin:0}
+.conv-summary .label{font-size:.7rem;text-transform:uppercase;letter-spacing:.08em;color:#7a8190;font-weight:600;margin-right:4px}
+/* Scroll-to-bottom floating button (injected client-side inside the
+ * existing scroll iframe). Pure parent-DOM CSS so it inherits theme. */
+.cs-jump-btn{
+  position:fixed;right:24px;bottom:96px;z-index:9000;
+  display:none;align-items:center;gap:6px;
+  padding:8px 14px;border-radius:999px;
+  background:rgba(79,139,249,.92);color:#fff;font-weight:600;font-size:.82rem;
+  border:1px solid rgba(255,255,255,.20);
+  box-shadow:0 8px 24px rgba(79,139,249,.35),0 2px 6px rgba(0,0,0,.25);
+  cursor:pointer;transition:transform .18s ease, box-shadow .2s ease, opacity .2s ease;
+  opacity:0;pointer-events:none;font-family:'Inter',system-ui,sans-serif;
+}
+.cs-jump-btn.cs-show{display:inline-flex;opacity:1;pointer-events:auto}
+.cs-jump-btn:hover{transform:translateY(-2px);box-shadow:0 12px 28px rgba(79,139,249,.45)}
+.cs-jump-btn:active{transform:translateY(0) scale(.97)}
+/* Network online/offline banner (injected client-side at module scope). */
+.cs-net-banner{
+  position:fixed;top:0;left:0;right:0;z-index:99999;
+  padding:8px 16px;text-align:center;font-size:.84rem;font-weight:600;
+  font-family:'Inter',system-ui,sans-serif;letter-spacing:.01em;
+  transform:translateY(-100%);transition:transform .25s ease, background-color .25s ease;
+  box-shadow:0 4px 12px rgba(0,0,0,.18);
+}
+.cs-net-banner.cs-show{transform:translateY(0)}
+.cs-net-banner.cs-offline{background:#fb923c;color:#1c1917}
+.cs-net-banner.cs-online{background:#34d399;color:#053b27}
+/* Recent-question resume card (injected client-side from localStorage). */
+.cs-resume-card{
+  display:block;width:100%;max-width:800px;margin:8px auto 14px;
+  padding:14px 16px;border-radius:14px;
+  background:rgba(142,107,255,.08);border:1px solid rgba(142,107,255,.22);
+  color:#cdd5e0;font-family:'Inter',system-ui,sans-serif;text-align:left;cursor:pointer;
+  transition:transform .15s ease, background-color .2s ease, border-color .2s ease, box-shadow .2s ease;
+}
+.cs-resume-card:hover{
+  background:rgba(142,107,255,.14);border-color:#8E6BFF;transform:translateY(-2px);
+  box-shadow:0 8px 22px rgba(142,107,255,.22);
+}
+.cs-resume-card .lbl{font-size:.68rem;text-transform:uppercase;letter-spacing:.10em;color:#9ea3b0;font-weight:700;margin-bottom:4px}
+.cs-resume-card .q{font-size:.95rem;font-weight:500;color:#E5E7EB;line-height:1.4}
+.cs-resume-card .meta{font-size:.72rem;color:#7a8190;margin-top:6px}
 </style>""", unsafe_allow_html=True)
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Network online/offline banner. Single always-mounted iframe at module
+# scope (stable script position) emits a sticky banner on the parent
+# document when navigator.onLine flips. Auto-dismisses 2s after recovery
+# and clears Streamlit's @cache_data on api_health by hitting a noop URL
+# fragment — the next sidebar render then re-evaluates health without a
+# page reload. Zero ghosts: the iframe never unmounts, the banner DOM
+# is owned by the iframe's parent-document hooks (idempotent insert).
+#
+# Also handles the `?draft=` query-param flow for edit-last-user-message
+# and for the recent-question Resume card: reads draft on parent URL,
+# fills the chat input textarea via React-friendly native setter, then
+# clears the param via history.replaceState (no reload).
+#
+# Also installs a hover prefetch on the Admin Dashboard radio: when the
+# user moves over it, fire the analytics endpoints once (debounced) so
+# the tab lands warm even if the user takes >30s to click.
+#
+# Also persists last user question per session into localStorage and
+# renders a "Resume" card client-side on the empty-state landing.
+components.html(
+    f"""<script>
+    (function(){{
+      const API = {json.dumps(API_URL)};
+      const doc = window.parent && window.parent.document;
+      if (!doc) return;
+      // ─── Idempotent install guard ───────────────────────────────────
+      if (window.parent.__chatsolveai_bridge__) return;
+      window.parent.__chatsolveai_bridge__ = true;
+
+      // ─── Network online/offline banner ──────────────────────────────
+      function ensureBanner() {{
+        let b = doc.getElementById('cs-net-banner');
+        if (b) return b;
+        b = doc.createElement('div');
+        b.id = 'cs-net-banner';
+        b.className = 'cs-net-banner';
+        doc.body.appendChild(b);
+        return b;
+      }}
+      function showBanner(text, mode) {{
+        const b = ensureBanner();
+        b.textContent = text;
+        b.classList.remove('cs-offline','cs-online','cs-show');
+        b.classList.add(mode === 'offline' ? 'cs-offline' : 'cs-online');
+        // double-rAF so the transform transition catches
+        requestAnimationFrame(() => requestAnimationFrame(() => b.classList.add('cs-show')));
+      }}
+      function hideBanner(after) {{
+        setTimeout(() => {{
+          const b = doc.getElementById('cs-net-banner');
+          if (b) b.classList.remove('cs-show');
+        }}, after || 0);
+      }}
+      window.parent.addEventListener('offline', () => {{
+        showBanner("You're offline — waiting for connection…", 'offline');
+      }});
+      window.parent.addEventListener('online', () => {{
+        showBanner("Back online. Re-checking backend…", 'online');
+        // Best-effort backend re-probe so the next Streamlit rerun
+        // picks up the recovery. Don't force a page reload.
+        fetch(API + "/health", {{mode:'no-cors', cache:'no-store'}})
+          .catch(()=>{{}})
+          .finally(() => hideBanner(1800));
+      }});
+      if (!window.parent.navigator.onLine) {{
+        showBanner("You're offline — waiting for connection…", 'offline');
+      }}
+
+      // ─── Draft prefill from ?draft= (edit-last + resume flows) ──────
+      function fillChatInput(text) {{
+        const tries = [];
+        const tryFill = () => {{
+          const ta = doc.querySelector('[data-testid="stChatInput"] textarea');
+          if (!ta) {{
+            if (tries.length < 20) {{
+              tries.push(1);
+              setTimeout(tryFill, 60);
+            }}
+            return;
+          }}
+          const setter = Object.getOwnPropertyDescriptor(
+            window.parent.HTMLTextAreaElement.prototype, 'value'
+          ).set;
+          setter.call(ta, text);
+          ta.dispatchEvent(new Event('input', {{bubbles:true}}));
+          ta.focus();
+          // place caret at end
+          const len = ta.value.length;
+          try {{ ta.setSelectionRange(len, len); }} catch (e) {{}}
+        }};
+        tryFill();
+      }}
+      function consumeDraftFromUrl() {{
+        try {{
+          const url = new URL(window.parent.location.href);
+          const draft = url.searchParams.get('draft');
+          if (!draft) return;
+          fillChatInput(decodeURIComponent(draft));
+          url.searchParams.delete('draft');
+          window.parent.history.replaceState({{}}, '', url.toString());
+        }} catch (e) {{}}
+      }}
+      consumeDraftFromUrl();
+      // Re-check on hashchange / popstate in case Streamlit reruns
+      // shuffle the URL before our handler runs.
+      window.parent.addEventListener('popstate', consumeDraftFromUrl);
+
+      // ─── Hover-prefetch on the Admin Dashboard radio ───────────────
+      const ANALYTICS_PATHS = [
+        "/analytics", "/analytics/timeseries?days=14",
+        "/analytics/intents", "/analytics/latency",
+        "/analytics/feedback",
+      ];
+      let prefetched = false;
+      function prefetchAdmin() {{
+        if (prefetched) return;
+        prefetched = true;
+        ANALYTICS_PATHS.forEach(p => {{
+          try {{ fetch(API + p, {{mode:'no-cors', cache:'no-store'}}); }}
+          catch (e) {{}}
+        }});
+      }}
+      function wireAdminHover() {{
+        const labels = doc.querySelectorAll('label, [data-testid="stRadio"] label');
+        labels.forEach(l => {{
+          if (l.__csWired__) return;
+          if ((l.textContent || '').includes('Admin')) {{
+            l.__csWired__ = true;
+            l.addEventListener('mouseenter', prefetchAdmin, {{once:true}});
+            l.addEventListener('focusin', prefetchAdmin, {{once:true}});
+          }}
+        }});
+      }}
+      // Wire on first paint; the MutationObserver below also re-runs
+      // wireAdminHover on every DOM change so radio re-renders pick it
+      // up without polling.
+      wireAdminHover();
+
+      // ─── localStorage: save last user query + offer Resume card ────
+      const LS_KEY = 'chatsolveai:last_query_v1';
+      function saveLastQueryFromDOM() {{
+        try {{
+          const userMsgs = doc.querySelectorAll(
+            '[class*="st-key-chatmsg-user"] [data-testid="stChatMessage"]'
+          );
+          if (!userMsgs.length) return;
+          const last = userMsgs[userMsgs.length - 1];
+          const text = (last.innerText || '').trim();
+          if (!text) return;
+          window.parent.localStorage.setItem(
+            LS_KEY,
+            JSON.stringify({{q: text.slice(0, 300), ts: Date.now()}})
+          );
+        }} catch (e) {{}}
+      }}
+      function maybeShowResumeCard() {{
+        try {{
+          // Only on landing (no chat messages yet) and where the
+          // greeting block is visible — keeps the card from intruding
+          // mid-conversation.
+          const hasMsgs = doc.querySelector(
+            '[class*="st-key-chatmsg-"] [data-testid="stChatMessage"]'
+          );
+          const greet = doc.querySelector('[class*="st-key-greeting_block"]');
+          if (hasMsgs || !greet) {{
+            const old = doc.getElementById('cs-resume-card');
+            if (old) old.remove();
+            return;
+          }}
+          const raw = window.parent.localStorage.getItem(LS_KEY);
+          if (!raw) return;
+          const data = JSON.parse(raw);
+          if (!data || !data.q) return;
+          const ageMs = Date.now() - (data.ts || 0);
+          if (ageMs > 7 * 24 * 60 * 60 * 1000) return;  // 7-day TTL
+          if (doc.getElementById('cs-resume-card')) return;
+          const card = doc.createElement('button');
+          card.id = 'cs-resume-card';
+          card.className = 'cs-resume-card';
+          card.type = 'button';
+          const mins = Math.max(1, Math.round(ageMs / 60000));
+          const ago = mins < 60 ? `${{mins}} min ago`
+                    : mins < 1440 ? `${{Math.round(mins/60)}}h ago`
+                    : `${{Math.round(mins/1440)}}d ago`;
+          card.innerHTML =
+            '<div class="lbl">↻ Resume previous chat</div>' +
+            '<div class="q"></div>' +
+            '<div class="meta"></div>';
+          card.querySelector('.q').textContent = data.q;
+          card.querySelector('.meta').textContent = 'Asked ' + ago + ' · click to prefill input';
+          card.addEventListener('click', () => {{
+            try {{
+              const url = new URL(window.parent.location.href);
+              url.searchParams.set('draft', encodeURIComponent(data.q));
+              window.parent.history.replaceState({{}}, '', url.toString());
+            }} catch (e) {{}}
+            fillChatInput(data.q);
+            card.remove();
+          }});
+          greet.appendChild(card);
+        }} catch (e) {{}}
+      }}
+      // Re-evaluate save / show / hover-wire whenever the parent DOM
+      // changes. MutationObserver is cheaper than polling and covers
+      // every Streamlit rerun without subscribing to internals. rAF
+      // throttle prevents bursts of mutations from queueing N runs.
+      let ticking = false;
+      const tick = () => {{
+        if (ticking) return;
+        ticking = true;
+        window.parent.requestAnimationFrame(() => {{
+          ticking = false;
+          try {{
+            saveLastQueryFromDOM();
+            maybeShowResumeCard();
+            wireAdminHover();
+          }} catch (e) {{}}
+        }});
+      }};
+      const mo = new window.parent.MutationObserver(tick);
+      mo.observe(doc.body, {{childList:true, subtree:true}});
+      tick();
+    }})();
+    </script>""",
+    height=0,
+)
 
 # ══════════════════════════════════════════════
 # Session state helpers (chat only)
@@ -815,9 +1142,17 @@ def render_meta(meta):
     conf = float(meta.get("confidence",0))
     lat = int(meta.get("latency_ms",0))
     pc = confidence_class(conf)
-    pills = (f'<span class="pill">{info["emoji"]} {info["label"]}</span>'
-             f'<span class="pill {pc}">{int(conf*100)}% confidence</span>'
-             f'<span class="pill pill-purple">⚡ {lat} ms</span>')
+    condensed = (meta.get("condensed_query") or "")[:140]
+    # Free native tooltips on each pill — gives power users a one-hover
+    # diagnostic without adding any new DOM element (zero ghost risk).
+    intent_t  = html.escape(f"Intent classifier: {info['label']} ({intent})", quote=True)
+    conf_t    = html.escape(f"Model confidence in this answer: {conf:.2f}. Higher = retrieval found a clear match.", quote=True)
+    lat_t     = html.escape(f"End-to-end latency for this turn: {lat} ms (includes retrieval + LLM stream).", quote=True)
+    if condensed:
+        conf_t += " · q: " + html.escape(condensed, quote=True)
+    pills = (f'<span class="pill" title="{intent_t}">{info["emoji"]} {info["label"]}</span>'
+             f'<span class="pill {pc}" title="{conf_t}">{int(conf*100)}% confidence</span>'
+             f'<span class="pill pill-purple" title="{lat_t}">⚡ {lat} ms</span>')
     st.markdown(f'<div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;">{pills}</div>',unsafe_allow_html=True)
     st.markdown(f'<div class="meter-wrap"><div class="meter-fill" style="width:{conf*100:.0f}%"></div></div>',unsafe_allow_html=True)
 
@@ -908,6 +1243,17 @@ def submit_query(query, append_user=True):
     })
     st.session_state.last_sources = sources
     st.session_state.last_meta = meta
+    # Connection-quality tracker: keep the most recent 5 turn latencies
+    # so the sidebar dot can grade end-to-end perf as green/amber/red
+    # by trailing p50, not just binary online/offline.
+    try:
+        lat_ms = int(meta.get("latency_ms", 0))
+        if lat_ms > 0:
+            buf = st.session_state.get("_latency_buf", [])
+            buf.append(lat_ms); buf = buf[-5:]
+            st.session_state["_latency_buf"] = buf
+    except Exception:
+        pass
     return True
 
 def _perform_full_reset():
@@ -922,7 +1268,8 @@ def _perform_full_reset():
     st.session_state["pending_query"] = None
     st.session_state["pending_append_user"] = True
     st.session_state["history_loaded_for"] = None
-    for k in ("followups","selected_topic","_idempotency_key"):
+    for k in ("followups","selected_topic","_idempotency_key",
+              "_animated_msgs","_latency_buf"):
         st.session_state.pop(k, None)
     _sync_session_url()
     for k in list(st.session_state.keys()):
@@ -947,10 +1294,22 @@ def render_chat(sidebar_slot, main_slot):
         # default st.success / st.error pill so we get the 'alive'
         # animated look the design pass asked for.
         if healthy:
+            buf = st.session_state.get("_latency_buf") or []
+            if buf:
+                # p50 of last 5 turns
+                p50 = sorted(buf)[len(buf)//2]
+                if p50 < 1200:
+                    mod, label, tip = "online", "Agent: Online", f"Fast — recent p50 {p50} ms"
+                elif p50 < 3000:
+                    mod, label, tip = "medium", "Agent: Slower", f"Backend slower than usual — p50 {p50} ms"
+                else:
+                    mod, label, tip = "poor", "Agent: Lagging", f"High latency — p50 {p50} ms"
+            else:
+                mod, label, tip = "online", "Agent: Online", "Backend reachable"
             st.markdown(
-                '<div class="agent-status agent-status--online">'
+                f'<div class="agent-status agent-status--{mod}" title="{html.escape(tip)}">'
                 '<span class="agent-status__dot"></span>'
-                '<span class="agent-status__label">Agent: Online</span>'
+                f'<span class="agent-status__label">{label}</span>'
                 '</div>',
                 unsafe_allow_html=True,
             )
@@ -1278,16 +1637,81 @@ def render_chat(sidebar_slot, main_slot):
         # unmount cleanly. Without the slot, Streamlit Cloud retained
         # the chat-history subtree across the reset, surfacing as
         # ghost messages on the landing screen.
+        # Per-message animation gate: stable script position. Always
+        # emits the style tag (empty when nothing to suppress) so its
+        # element identity never shifts across reruns. Already-seen
+        # message indices get their slide-in keyframe disabled so a
+        # streaming rerun doesn't replay every prior bubble.
+        seen = st.session_state.setdefault("_animated_msgs", set())
+        anim_rules = []
+        for idx, msg in enumerate(msgs):
+            role_short_a = "user" if msg["role"] == "user" else "asst"
+            key_id = f"{role_short_a}-{conv}-{idx}"
+            if key_id in seen:
+                anim_rules.append(
+                    f"[class*='st-key-chatmsg-{key_id}'] [data-testid='stChatMessage']"
+                    "{animation:none!important}"
+                )
+            else:
+                seen.add(key_id)
+        st.markdown(f"<style>{''.join(anim_rules)}</style>", unsafe_allow_html=True)
+
         chat_slot = st.empty()
         if msgs or has_pending:
             with chat_slot.container():
                 with st.container(key="chat_history_box", height=520):
+                    # Conversation summary chip — derived stats, no API
+                    # call. Appears only once the conversation has some
+                    # weight (>=3 messages) so single-turn chats aren't
+                    # cluttered by a header.
+                    if len(msgs) >= 3:
+                        asst_metas = [m["meta"] for m in msgs
+                                      if m["role"] == "assistant" and isinstance(m.get("meta"), dict)]
+                        user_n = sum(1 for m in msgs if m["role"] == "user")
+                        if asst_metas:
+                            avg_lat = sum(int(m.get("latency_ms", 0)) for m in asst_metas) // len(asst_metas)
+                            high = sum(1 for m in asst_metas if float(m.get("confidence", 0)) >= 0.75)
+                            pct = int(100 * high / len(asst_metas))
+                        else:
+                            avg_lat, pct = 0, 0
+                        st.markdown(
+                            f'<div class="conv-summary">'
+                            f'<span class="label">Session</span>'
+                            f'<span class="pill">{user_n} question{"s" if user_n != 1 else ""}</span>'
+                            f'<span class="pill pill-purple">⚡ avg {avg_lat} ms</span>'
+                            f'<span class="pill pill-green">{pct}% high-confidence</span>'
+                            f'</div>',
+                            unsafe_allow_html=True,
+                        )
+                    last_user_idx = max(
+                        (i for i, m in enumerate(msgs) if m["role"] == "user"),
+                        default=-1,
+                    )
                     for idx, msg in enumerate(msgs):
                         avatar = USER_AVATAR if msg["role"] == "user" else ASSISTANT_AVATAR
                         role_short = "user" if msg["role"] == "user" else "asst"
                         with st.container(key=f"chatmsg-{role_short}-{conv}-{idx}"):
                             with st.chat_message(msg["role"], avatar=avatar):
                                 st.markdown(msg["content"])
+                                if msg["role"] == "user" and idx == last_user_idx and not has_pending:
+                                    # Edit-and-resend pencil on the most
+                                    # recent user message only. Drops
+                                    # everything from idx onward and
+                                    # routes the text into the chat
+                                    # input via ?draft= which the
+                                    # network-bridge iframe consumes
+                                    # (history.replaceState, no reload).
+                                    _ec1, _ec2 = st.columns([10, 1])
+                                    with _ec2:
+                                        if st.button("✎", key=f"edit_user_{conv}_{idx}",
+                                                     help="Edit and resend"):
+                                            draft_q = msg["content"]
+                                            st.session_state.messages = msgs[:idx]
+                                            try:
+                                                st.query_params["draft"] = draft_q
+                                            except Exception:
+                                                pass
+                                            st.rerun()
                                 if msg["role"] == "assistant":
                                     render_meta(msg.get("meta", {}))
                                     render_sources(msg.get("sources", []))
@@ -1325,6 +1749,13 @@ def render_chat(sidebar_slot, main_slot):
                 # while the streaming answer grows so the view doesn't
                 # lag behind incoming tokens. Idempotent across reruns
                 # via a window-level flag stored on the parent document.
+                #
+                # Also installs a floating "↓ Jump to latest" pill on
+                # the parent document. The pill is hidden by default
+                # and shown when the user scrolls more than 120px above
+                # the bottom of the chat scroller. Click jumps back.
+                # All DOM lives on the parent so it isn't affected by
+                # iframe unmounts; idempotent via window-level flag.
                 components.html(
                     """<script>
                     (function(){
@@ -1339,10 +1770,39 @@ def render_chat(sidebar_slot, main_slot):
                           }
                           return null;
                         };
+                        const ensureJumpBtn = () => {
+                          let btn = doc.getElementById('cs-jump-btn');
+                          if (btn) return btn;
+                          btn = doc.createElement('button');
+                          btn.id = 'cs-jump-btn';
+                          btn.className = 'cs-jump-btn';
+                          btn.type = 'button';
+                          btn.innerHTML = '↓ Jump to latest';
+                          btn.addEventListener('click', () => {
+                            const s = pickScroller();
+                            if (!s) return;
+                            s.scrollTo({ top: s.scrollHeight, behavior: 'smooth' });
+                          });
+                          doc.body.appendChild(btn);
+                          return btn;
+                        };
+                        const updateBtnVisibility = (s) => {
+                          if (!s) return;
+                          const btn = ensureJumpBtn();
+                          const dist = s.scrollHeight - s.scrollTop - s.clientHeight;
+                          btn.classList.toggle('cs-show', dist > 120);
+                        };
                         const anchor = () => {
                           const s = pickScroller();
                           if (!s) return;
                           s.scrollTo({ top: s.scrollHeight, behavior: 'smooth' });
+                          ensureJumpBtn();
+                          // Wire scroll-position listener once per scroller.
+                          if (!s.__csScrollWired__) {
+                            s.__csScrollWired__ = true;
+                            s.addEventListener('scroll', () => updateBtnVisibility(s), {passive:true});
+                          }
+                          updateBtnVisibility(s);
                           const last = s.querySelector(
                             '[data-testid="stChatMessage"]:last-of-type'
                           );
@@ -1357,7 +1817,13 @@ def render_chat(sidebar_slot, main_slot):
                             scheduled = true;
                             requestAnimationFrame(() => {
                               scheduled = false;
-                              s.scrollTo({ top: s.scrollHeight, behavior: 'auto' });
+                              // Only auto-anchor if user is already near
+                              // the bottom — respects manual scroll-up.
+                              const dist = s.scrollHeight - s.scrollTop - s.clientHeight;
+                              if (dist < 200) {
+                                s.scrollTo({ top: s.scrollHeight, behavior: 'auto' });
+                              }
+                              updateBtnVisibility(s);
                             });
                           });
                           window.__chatRO__.observe(last);
@@ -1760,7 +2226,12 @@ if view == NAV_ADMIN:
         "[class*='st-key-chat_history_box'],"
         ".drill-section,"
         "[data-testid='stChatInput'],"
-        "[data-testid='stChatMessage']"
+        "[data-testid='stChatMessage'],"
+        # Floating elements owned by the network-bridge / scroll iframes
+        # live on the parent document (not in a Streamlit-keyed wrapper),
+        # so they need explicit hiding when not on the chat view.
+        "#cs-jump-btn,"
+        "#cs-resume-card"
         f"{HIDE}"
     )
 else:  # NAV_CHAT
