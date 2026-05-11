@@ -7,7 +7,7 @@ folding both views into one script eliminates that class of bug entirely.
 """
 
 from __future__ import annotations
-import base64, hmac, json, os, time, uuid
+import base64, hmac, html, json, os, threading, time, uuid
 from datetime import datetime
 from functools import lru_cache
 import requests, streamlit as st
@@ -283,11 +283,36 @@ a:hover{color:var(--accent)}
  * common ancestor (st-key-view_sb_chat / _admin container). Pure CSS,
  * no DOM additions. */
 [class*='st-key-view_sb_chat'] .agent-status,[class*='st-key-view_sb_chat'] [class*='st-key-btn_new_chat']{box-shadow:0 1px 0 rgba(255,255,255,.02) inset,0 1px 2px rgba(0,0,0,.10)}
+/* Subtle native-tooltip affordance on source cards: cursor change + the
+ * browser's built-in title= popup carries the full passage. No JS, no
+ * iframe, no ghost surface. */
+.src-card[title]{cursor:help}
+/* prefers-contrast: bumps border opacity so bubbles + cards stay clearly
+ * separated for users who request stronger contrast in OS settings. */
+@media (prefers-contrast: more){
+  .src-card{border-color:rgba(255,255,255,.22)!important}
+  [data-testid='stChatMessage']{border-color:rgba(255,255,255,.24)!important}
+  [class*='st-key-chatmsg-user'] [data-testid='stChatMessage']{border-color:rgba(79,139,249,.55)!important}
+  [class*='st-key-chatmsg-asst'] [data-testid='stChatMessage']{border-color:rgba(255,255,255,.30)!important}
+  .pill{outline:1px solid rgba(255,255,255,.20)}
+}
+/* prefers-reduced-data: drop the animated mesh background entirely on
+ * data-saver connections — the radial-gradient layers cost paint cycles
+ * for purely decorative motion. */
+@media (prefers-reduced-data: reduce){
+  [data-testid='stAppViewContainer']::before{animation:none!important;background:linear-gradient(180deg,#0E1117 0%,#161A23 60%,#1E293B 100%)!important}
+}
 </style>""", unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════
 # Session state helpers (chat only)
 # ══════════════════════════════════════════════
+# Per-message widget keys that must be cleared on New chat reset so a
+# fresh conv_id doesn't collide with stale feedback / regen / chip state.
+# Hoisted to module scope so the prefix list is auditable and shared
+# between _perform_full_reset and any future cleanup paths.
+_RESET_KEY_PREFIXES = ("fb_","up_","down_","fu_","chip_","topic_")
+
 def _session_id_from_url():
     try: sid = st.query_params.get("sid")
     except Exception: return None
@@ -448,7 +473,7 @@ st.markdown(f"<style>{_NEW_CHAT_CSS}</style>", unsafe_allow_html=True)
 #   sidebar #fffdf7  - subtle paper tint
 #   surface #fffefa  - cards, chat input, message bubbles
 #   border  #ece5d6  - warm beige border
-#   text    #1c1917 (primary) / #6b6357 (secondary)
+#   text    #1c1917 (primary) / #574f43 (secondary)
 #   accent  #4F8BF9 (unchanged so brand colors stay consistent)
 _LIGHT_CSS_GLOBAL = (
     # Page surfaces + the Streamlit top header bar (was leaving a black
@@ -467,7 +492,7 @@ _LIGHT_CSS_GLOBAL = (
     # Hero — keep brand gradient on the title, but use deeper colors
     # that read clearly against the warm cream background.
     ".hero-title{background:linear-gradient(90deg,#1d4ed8 0%,#7c3aed 100%)!important;-webkit-background-clip:text!important;background-clip:text!important;-webkit-text-fill-color:transparent!important;color:transparent!important;filter:none!important}"
-    ".hero-sub{color:#6b6357!important}"
+    ".hero-sub{color:#574f43!important}"
     ".page-entry-3 strong,.page-entry-3{color:#1c1917!important}"
     # Chat input — broaden selectors so the BaseWeb wrapper (the dark
     # band visible around the textarea) gets the warm surface too.
@@ -505,7 +530,7 @@ _LIGHT_CSS_GLOBAL = (
     # Drill section header
     ".drill-section h3{color:#1c1917!important}"
     # Captions + small text
-    ".stMarkdown p,.stMarkdown li,.stCaption,small,[data-testid='stCaptionContainer']{color:#6b6357!important}"
+    ".stMarkdown p,.stMarkdown li,.stCaption,small,[data-testid='stCaptionContainer']{color:#574f43!important}"
     # Pills
     ".pill{background:rgba(79,139,249,.10)!important;color:#1e40af!important}"
     ".pill-green{background:rgba(34,197,94,.12)!important;color:#15803d!important}"
@@ -514,7 +539,7 @@ _LIGHT_CSS_GLOBAL = (
     ".pill-purple{background:rgba(168,85,247,.14)!important;color:#6b21a8!important}"
     # Source cards
     ".src-card{background:#fffefa!important;border:1px solid #ece5d6!important;border-left:3px solid #4F8BF9!important;color:#1c1917!important}"
-    ".src-meta{color:#6b6357!important}"
+    ".src-meta{color:#574f43!important}"
     # Dividers
     "hr{border-top:1px solid #ece5d6!important;opacity:1!important}"
     # Sign-out button (admin sidebar)
@@ -528,20 +553,20 @@ _LIGHT_CSS_GLOBAL = (
 _LIGHT_CSS_ADMIN = (
     ".st-key-admin_grid [data-testid='stMetric']{background:#fffefa!important;border:1px solid #ece5d6!important;backdrop-filter:none!important;box-shadow:0 1px 3px rgba(28,25,23,.05)}"
     ".st-key-admin_grid [data-testid='stMetric']:hover{box-shadow:0 6px 20px rgba(79,139,249,.10)!important;border-color:rgba(79,139,249,.35)!important}"
-    ".st-key-admin_grid [data-testid='stMetricLabel'],.st-key-admin_grid [data-testid='stMetricLabel'] *{color:#6b6357!important}"
+    ".st-key-admin_grid [data-testid='stMetricLabel'],.st-key-admin_grid [data-testid='stMetricLabel'] *{color:#574f43!important}"
     ".st-key-admin_grid [data-testid='stMetricValue'],.st-key-admin_grid [data-testid='stMetricValue'] *{color:#1c1917!important;text-shadow:none!important}"
     ".st-key-admin_grid h1,.st-key-admin_grid h2,.st-key-admin_grid h3{color:#1c1917!important}"
-    ".st-key-admin_grid [data-testid='stTabs'] button[role='tab']{color:#6b6357!important}"
+    ".st-key-admin_grid [data-testid='stTabs'] button[role='tab']{color:#574f43!important}"
     ".st-key-admin_grid [data-testid='stTabs'] button[role='tab'][aria-selected='true']{color:#1c1917!important}"
     ".st-key-admin_grid [data-testid='stTabs'] [data-baseweb='tab-list']{border-bottom:1px solid #ece5d6!important}"
     ".st-key-admin_grid [data-baseweb='select']>div{background:#fffefa!important;border:1px solid #ece5d6!important;color:#1c1917!important}"
     ".st-key-admin_grid [data-baseweb='select'] *{color:#1c1917!important}"
-    ".st-key-admin_grid label,.st-key-admin_grid [data-testid='stWidgetLabel']{color:#6b6357!important}"
+    ".st-key-admin_grid label,.st-key-admin_grid [data-testid='stWidgetLabel']{color:#574f43!important}"
     ".st-key-admin_grid [data-testid='stButton'] button{background:#fffefa!important;border:1px solid #ece5d6!important;color:#1c1917!important}"
     ".st-key-admin_grid [data-testid='stButton'] button:hover{background:#f5ede0!important;border-color:#4F8BF9!important}"
     ".st-key-admin_grid [data-testid='stDataFrame']{background:#fffefa!important;border:1px solid #ece5d6!important;border-radius:10px!important}"
     ".st-key-admin_grid [data-testid='stDataFrame'] *{color:#1c1917!important}"
-    ".st-key-admin_grid [data-testid='stCaptionContainer']{color:#6b6357!important}"
+    ".st-key-admin_grid [data-testid='stCaptionContainer']{color:#574f43!important}"
     # Slider track + thumb (Rows to show)
     ".st-key-admin_grid [data-testid='stSlider'] [data-baseweb='slider'] div[role='progressbar']{background:#cdddfb!important}"
     ".st-key-admin_grid [data-testid='stSlider'] [data-baseweb='slider'] div[role='slider']{background:#4F8BF9!important;border:2px solid #fffefa!important}"
@@ -554,6 +579,15 @@ def _init_state():
                 "pending_append_user":True,"history_loaded_for":None}.items():
         if k not in st.session_state: st.session_state[k] = v
     st.session_state.pop("followups",None)
+    # Bind the session_id onto Sentry's scope as an anonymous user id
+    # so a chain of breadcrumbs (chat/admin fetches, errors) groups by
+    # session in the Sentry UI. Re-set every rerun because Streamlit
+    # tears down the per-request scope; cheap, idempotent.
+    try:
+        import sentry_sdk as _ss
+        _ss.set_user({"id": st.session_state["session_id"]})
+    except Exception:
+        pass
 
 # ══════════════════════════════════════════════
 # API helpers
@@ -568,20 +602,71 @@ def api_health():
         time.sleep(2)
     return False
 
+def _record_chat_breadcrumb(endpoint, t0, attempts, ok, status=None, exc=None):
+    try:
+        import sentry_sdk as _ss
+        ms = int((time.perf_counter() - t0) * 1000)
+        _ss.add_breadcrumb(
+            category="chat_fetch",
+            level="info" if ok else "warning",
+            message=endpoint,
+            data={"latency_ms": ms, "attempts": attempts, "ok": ok,
+                  "status": status, "error": repr(exc) if exc else None},
+        )
+    except Exception:
+        pass
+
+def _idempotency_key(query):
+    """Stable per-submit key so retries don't double-bill OpenAI. Generated
+    once per submit_query() call via session_state and rotated when the
+    next user turn starts."""
+    if not st.session_state.get("_idempotency_key"):
+        st.session_state["_idempotency_key"] = uuid.uuid4().hex
+    return st.session_state["_idempotency_key"]
+
+def _api_headers_for_chat(query):
+    h = _api_headers()
+    h["X-Idempotency-Key"] = _idempotency_key(query)
+    return h
+
 def call_chat(query):
+    t0 = time.perf_counter()
+    last_status = None
+    last_exc = None
     for attempt in range(2):
         try:
-            r = requests.post(f"{API_URL}/chat",json={"session_id":st.session_state.session_id,"query":query},headers=_api_headers(),timeout=60)
-            if r.ok: return r.json()
+            r = requests.post(f"{API_URL}/chat",json={"session_id":st.session_state.session_id,"query":query},headers=_api_headers_for_chat(query),timeout=60)
+            last_status = r.status_code
+            if r.ok:
+                _record_chat_breadcrumb("/chat", t0, attempt+1, ok=True, status=r.status_code)
+                return r.json()
             if 500<=r.status_code<600 and attempt==0: time.sleep(3); continue
-        except Exception: time.sleep(3)
+        except Exception as e:
+            last_exc = e
+            time.sleep(3)
+    _record_chat_breadcrumb("/chat", t0, 2, ok=False, status=last_status, exc=last_exc)
     return None
 
 def call_chat_stream(query, output_box=None):
     parts,final,err = [],[],None
+    t0 = time.perf_counter()
+    last_flush = 0.0
+    FLUSH_INTERVAL_S = 0.04  # ~25 fps; batches token paints to cut markdown re-render cost
+    CURSOR = " ▍"
+
+    def _paint(force=False):
+        nonlocal last_flush
+        if not output_box: return
+        now = time.perf_counter()
+        if force or (now - last_flush) >= FLUSH_INTERVAL_S:
+            output_box.markdown("".join(parts) + CURSOR)
+            last_flush = now
+
     try:
-        with requests.post(f"{API_URL}/chat/stream",json={"session_id":st.session_state.session_id,"query":query},headers=_api_headers(),timeout=90,stream=True) as r:
-            if not r.ok: return None
+        with requests.post(f"{API_URL}/chat/stream",json={"session_id":st.session_state.session_id,"query":query},headers=_api_headers_for_chat(query),timeout=90,stream=True) as r:
+            if not r.ok:
+                _record_chat_breadcrumb("/chat/stream", t0, 1, ok=False, status=r.status_code)
+                return None
             for line in r.iter_lines(decode_unicode=True):
                 if not line or not line.startswith("data:"): continue
                 payload = line.removeprefix("data:").strip()
@@ -590,11 +675,18 @@ def call_chat_stream(query, output_box=None):
                 except Exception: continue
                 if "token" in ev:
                     parts.append(ev["token"])
-                    if output_box: output_box.markdown("".join(parts))
+                    _paint()
                 elif ev.get("event")=="final": final = ev
-    except Exception as e: err = str(e)
+    except Exception as e:
+        err = str(e)
+        _record_chat_breadcrumb("/chat/stream", t0, 1, ok=False, exc=e)
+    if output_box and parts:
+        # final paint without the cursor
+        output_box.markdown("".join(parts))
     if final:
-        final.setdefault("answer","".join(parts)); return final
+        final.setdefault("answer","".join(parts))
+        _record_chat_breadcrumb("/chat/stream", t0, 1, ok=True)
+        return final
     if parts:
         return {"answer":"".join(parts),"source_documents":[],"confidence":0.0,
                 "condensed_query":query,"intent":"general","latency_ms":0}
@@ -608,11 +700,28 @@ def call_suggest(answer):
     except Exception: pass
     return []
 
+def _post_feedback_async(payload):
+    """Run feedback POST off the request thread so the UI rerun isn't
+    gated on backend latency. Daemon thread; failures are swallowed —
+    feedback is best-effort and surfacing errors here would just nag."""
+    def _send():
+        try:
+            requests.post(
+                f"{API_URL}/feedback",
+                json=payload,
+                headers=_api_headers(),
+                timeout=10,
+            )
+        except Exception:
+            pass
+    threading.Thread(target=_send, daemon=True).start()
+
 def call_feedback(q,a,rating):
-    try:
-        r = requests.post(f"{API_URL}/feedback",json={"session_id":st.session_state.session_id,"query":q,"answer":a,"rating":rating},headers=_api_headers(),timeout=10)
-        return r.ok
-    except Exception: return False
+    _post_feedback_async({
+        "session_id": st.session_state.session_id,
+        "query": q, "answer": a, "rating": rating,
+    })
+    return True
 
 @st.cache_data(ttl=30, show_spinner=False)
 def _fetch_admin(path):
@@ -726,7 +835,18 @@ def render_sources(sources):
             if meta.get("source_query"): bits.append(f'matched q:{meta["source_query"][:60]}')
             line = " · ".join(bits) or "retrieved"
             rank = ["1st","2nd","3rd","4th"][i]
-            st.markdown(f'<div class="src-card {cls}"><strong>{rank}</strong> — {src["content"][:220]}{"…" if len(src["content"])>220 else ""}<div class="src-meta">{line}</div></div>',unsafe_allow_html=True)
+            full = src.get("content","") or ""
+            # title= gives a free native browser tooltip with the full passage
+            # text on hover, w/o adding any iframe / new DOM (zero ghost risk).
+            tooltip = html.escape(full[:800], quote=True)
+            snippet = html.escape(full[:220]) + ("…" if len(full) > 220 else "")
+            line_safe = html.escape(line)
+            st.markdown(
+                f'<div class="src-card {cls}" title="{tooltip}">'
+                f'<strong>{rank}</strong> — {snippet}'
+                f'<div class="src-meta">{line_safe}</div></div>',
+                unsafe_allow_html=True,
+            )
 
 def build_transcript_md():
     lines = [f"# ChatSolveAI Conversation\n_Session `{st.session_state.session_id}` · exported {datetime.utcnow():%Y-%m-%d %H:%M UTC}_\n"]
@@ -740,6 +860,11 @@ def build_transcript_md():
 
 def submit_query(query, append_user=True):
     if not query or not str(query).strip(): return False
+    # Rotate the idempotency key per submit so a new turn (or a
+    # Regenerate) gets a fresh dedup window on the backend, while
+    # internal retries within call_chat / call_chat_stream still
+    # reuse the same key (set on first read inside this submit).
+    st.session_state.pop("_idempotency_key", None)
     if append_user:
         st.session_state.messages.append({"role":"user","content":query})
     # Wrap each chat_message in a keyed st.container so the role is
@@ -797,11 +922,11 @@ def _perform_full_reset():
     st.session_state["pending_query"] = None
     st.session_state["pending_append_user"] = True
     st.session_state["history_loaded_for"] = None
-    st.session_state.pop("followups",None)
-    st.session_state.pop("selected_topic",None)
+    for k in ("followups","selected_topic","_idempotency_key"):
+        st.session_state.pop(k, None)
     _sync_session_url()
     for k in list(st.session_state.keys()):
-        if isinstance(k,str) and k.startswith(("fb_","up_","down_","fu_","chip_","topic_")):
+        if isinstance(k,str) and k.startswith(_RESET_KEY_PREFIXES):
             del st.session_state[k]
 
 # ══════════════════════════════════════════════
@@ -885,10 +1010,30 @@ def render_chat(sidebar_slot, main_slot):
     # user clicks Admin Dashboard. Pure browser-side, doesn't block
     # Python rendering.
     if is_first_render:
+        # Background warmup: hit /health to wake the HF Space, and
+        # opportunistically prefetch the admin analytics endpoints so
+        # clicking "Admin Dashboard" lands on a populated view instead
+        # of a 20-30s cold-start spinner. Sequenced so /health primes
+        # the worker before analytics kicks off; failures are silent.
         components.html(
             f"""<script>
-            try {{ fetch("{API_URL}/health", {{mode:'no-cors',cache:'no-store'}}); }}
-            catch (e) {{}}
+            (async () => {{
+              const opts = {{mode:'no-cors', cache:'no-store', credentials:'omit'}};
+              const paths = [
+                "/health",
+                "/analytics",
+                "/analytics/timeseries?days=14",
+                "/analytics/intents",
+                "/analytics/latency",
+                "/analytics/feedback",
+              ];
+              try {{ await fetch("{API_URL}" + paths[0], opts); }} catch (e) {{}}
+              // Fan out the remaining prefetches; HTTP/2 multiplexes
+              // them so this is one cheap round of warmup.
+              paths.slice(1).forEach(p => {{
+                try {{ fetch("{API_URL}" + p, opts); }} catch (e) {{}}
+              }});
+            }})();
             </script>""",
             height=0,
         )
@@ -1173,21 +1318,53 @@ def render_chat(sidebar_slot, main_slot):
                             st.warning("Backend cold‑starting … try again in ~30s.")
                             st.session_state.pending_query = None
 
+                # Scroll-to-bottom: rAF + IntersectionObserver beats the
+                # prior 120ms setTimeout. rAF guarantees we paint AFTER
+                # Streamlit's reconciler has appended the new message;
+                # the observer watches the last bubble and re-anchors
+                # while the streaming answer grows so the view doesn't
+                # lag behind incoming tokens. Idempotent across reruns
+                # via a window-level flag stored on the parent document.
                 components.html(
                     """<script>
-                    setTimeout(() => {
+                    (function(){
                       try {
-                        const root = window.parent.document;
-                        const blocks = root.querySelectorAll(
-                          '[data-testid="stVerticalBlockBorderWrapper"]'
-                        );
-                        blocks.forEach(b => {
-                          if (b.scrollHeight > b.clientHeight) {
-                            b.scrollTo({ top: b.scrollHeight, behavior: 'smooth' });
+                        const doc = window.parent.document;
+                        const pickScroller = () => {
+                          const candidates = doc.querySelectorAll(
+                            '[data-testid="stVerticalBlockBorderWrapper"]'
+                          );
+                          for (const b of candidates) {
+                            if (b.scrollHeight > b.clientHeight) return b;
                           }
-                        });
+                          return null;
+                        };
+                        const anchor = () => {
+                          const s = pickScroller();
+                          if (!s) return;
+                          s.scrollTo({ top: s.scrollHeight, behavior: 'smooth' });
+                          const last = s.querySelector(
+                            '[data-testid="stChatMessage"]:last-of-type'
+                          );
+                          if (!last) return;
+                          // Re-anchor as the last bubble grows mid-stream.
+                          // ResizeObserver fires on each token paint; cap
+                          // to one rAF so we don't spam scrollTo per char.
+                          if (window.__chatRO__) window.__chatRO__.disconnect();
+                          let scheduled = false;
+                          window.__chatRO__ = new ResizeObserver(() => {
+                            if (scheduled) return;
+                            scheduled = true;
+                            requestAnimationFrame(() => {
+                              scheduled = false;
+                              s.scrollTo({ top: s.scrollHeight, behavior: 'auto' });
+                            });
+                          });
+                          window.__chatRO__.observe(last);
+                        };
+                        requestAnimationFrame(() => requestAnimationFrame(anchor));
                       } catch (e) {}
-                    }, 120);
+                    })();
                     </script>""",
                     height=0,
                 )
