@@ -186,7 +186,12 @@ body{font-weight:400}
 [data-testid='stChatInput']:focus-within,[data-baseweb='input']:focus-within{box-shadow:0 0 15px rgba(79,139,249,.20)!important;border-color:#4F8BF9!important;border-radius:14px!important}
 [data-testid='stChatInput'] textarea:focus,[data-baseweb='input'] input:focus{outline:none!important}
 [data-testid='stMain'] .block-container{max-width:1100px!important;margin-left:auto!important;margin-right:auto!important}
-[data-testid='stMain']:has(.st-key-admin_grid) .block-container{max-width:1500px!important}
+/* Admin's wider 1500px max-width is emitted conditionally in the
+ * view-dispatch block at the bottom of App.py. Using `:has()` here
+ * caused the admin width to leak into the chat view because
+ * `.st-key-admin_grid` stays mounted (with display:none from the
+ * ghost-css) even after the user switches back — `:has()` matches
+ * DOM presence regardless of visibility. */
 @media (max-width:900px){.st-key-admin_grid [data-testid='stHorizontalBlock']{flex-direction:column!important;gap:1rem!important}.st-key-admin_grid [data-testid='stHorizontalBlock'] [data-testid='stColumn']{width:100%!important;flex:1 1 100%!important;min-width:0!important}.st-key-admin_grid [data-testid='stMetric']{padding:12px 14px!important}.st-key-admin_grid [data-testid='stMetricValue']{font-size:1.4rem!important}}
 [data-testid='stChatInput']{border-radius:14px!important;border:1px solid rgba(255,255,255,.08)!important;background:rgba(28,34,46,.92)!important;transition:all .3s ease!important;backdrop-filter:saturate(140%)}
 [data-testid='stChatInput'] textarea::placeholder{color:#6b7280!important;opacity:.85!important}
@@ -2334,6 +2339,10 @@ if view == NAV_ADMIN:
         "#cs-resume-card"
         f"{HIDE}"
     )
+    # Admin needs the wider container so the metrics grid + dataframes
+    # don't get pinched. Emitted conditionally so it doesn't leak when
+    # the user switches back to chat.
+    ghost_css += "[data-testid='stMain'] .block-container{max-width:1500px!important}"
 else:  # NAV_CHAT
     ghost_css = (
         "[class*='st-key-admin_grid'],"
@@ -2345,6 +2354,9 @@ else:  # NAV_CHAT
         "[data-testid='stTabs']"
         f"{HIDE}"
     )
+    # Force the chat view back to 1100px regardless of any prior
+    # admin-width inheritance. Belt-and-braces with the base rule.
+    ghost_css += "[data-testid='stMain'] .block-container{max-width:1100px!important}"
 ghost_css += (
     f",[class*='st-key-view_main_{inactive_tag}'],"
     f"[class*='st-key-view_sb_{inactive_tag}']"
