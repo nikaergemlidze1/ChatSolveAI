@@ -401,6 +401,16 @@ a:hover{color:var(--accent)}
 .cs-resume-card .lbl{font-size:.68rem;text-transform:uppercase;letter-spacing:.10em;color:#9ea3b0;font-weight:700;margin-bottom:4px}
 .cs-resume-card .q{font-size:.95rem;font-weight:500;color:#E5E7EB;line-height:1.4}
 .cs-resume-card .meta{font-size:.72rem;color:#7a8190;margin-top:6px}
+.cs-resume-card{position:relative}
+.cs-resume-x{
+  position:absolute;top:6px;right:8px;width:22px;height:22px;
+  display:inline-flex;align-items:center;justify-content:center;
+  background:transparent;border:none;color:#9ea3b0;font-size:1.05rem;line-height:1;
+  border-radius:50%;cursor:pointer;padding:0;
+  transition:background-color .15s ease, color .15s ease, transform .15s ease;
+}
+.cs-resume-x:hover{background:rgba(255,255,255,.08);color:#E5E7EB;transform:scale(1.08)}
+.cs-resume-x:focus-visible{outline:2px solid #8E6BFF;outline-offset:2px}
 </style>""", unsafe_allow_html=True)
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -544,6 +554,23 @@ components.html(
 
       // ─── localStorage: save last user query + offer Resume card ────
       const LS_KEY = 'chatsolveai:last_query_v1';
+      // Strip leaked avatar emoji prefixes + the streaming cursor block
+      // glyph that can occasionally remain in DOM. Avatar leaks would
+      // otherwise compound (🧑 🧑 🧑 …) on each Resume cycle; the cursor
+      // (▍, U+258D) leaks when call_chat_stream's final paint races
+      // with a fast user re-submit.
+      const BLOCK_RX = /[\\u2580-\\u259F]/g;       // block-elements range
+      const LEAD_RX  = /^[^\\p{{L}}\\p{{N}}]+/u;     // strip leading non-letter/number
+      function sanitize(s) {{
+        if (!s) return '';
+        let t = String(s).replace(BLOCK_RX, '').replace(/\\u00A0/g, ' ');
+        // Collapse newlines + repeated whitespace.
+        t = t.replace(/\\s+/g, ' ');
+        // Strip leading symbol/emoji noise (avatars, dingbats) until
+        // we hit the first letter or digit.
+        t = t.replace(LEAD_RX, '');
+        return t.trim();
+      }}
       function saveLastQueryFromDOM() {{
         try {{
           const userMsgs = doc.querySelectorAll(
@@ -551,14 +578,45 @@ components.html(
           );
           if (!userMsgs.length) return;
           const last = userMsgs[userMsgs.length - 1];
-          const text = (last.innerText || '').trim();
+          // Prefer the inner .stMarkdown content; falls back to
+          // innerText with avatar-strip so we never bake the avatar
+          // emoji or streaming cursor into the saved query.
+          const md = last.querySelector(
+            '[data-testid="stMarkdownContainer"], .stMarkdown'
+          );
+          const raw = ((md || last).innerText) || '';
+          const text = sanitize(raw);
           if (!text) return;
+          const prev = window.parent.localStorage.getItem(LS_KEY);
+          // Skip the write if the cleaned text is identical to what's
+          // already stored — avoids a localStorage write per
+          // MutationObserver tick during streaming.
+          try {{
+            if (prev && JSON.parse(prev).q === text) return;
+          }} catch (e) {{}}
           window.parent.localStorage.setItem(
             LS_KEY,
             JSON.stringify({{q: text.slice(0, 300), ts: Date.now()}})
           );
         }} catch (e) {{}}
       }}
+      function clearResumeStorage() {{
+        try {{ window.parent.localStorage.removeItem(LS_KEY); }} catch (e) {{}}
+        const old = doc.getElementById('cs-resume-card');
+        if (old) old.remove();
+      }}
+      // Handle `?clear_resume=1` set by the New-chat button so the
+      // Resume affordance is consistent with a session reset.
+      function consumeClearResume() {{
+        try {{
+          const url = new URL(window.parent.location.href);
+          if (url.searchParams.get('clear_resume') !== '1') return;
+          clearResumeStorage();
+          url.searchParams.delete('clear_resume');
+          window.parent.history.replaceState({{}}, '', url.toString());
+        }} catch (e) {{}}
+      }}
+      consumeClearResume();
       function maybeShowResumeCard() {{
         try {{
           // Only on landing (no chat messages yet) and where the
@@ -575,33 +633,62 @@ components.html(
           }}
           const raw = window.parent.localStorage.getItem(LS_KEY);
           if (!raw) return;
-          const data = JSON.parse(raw);
+          let data;
+          try {{ data = JSON.parse(raw); }} catch (e) {{ return; }}
           if (!data || !data.q) return;
+          // Migrate / sanitize any legacy contaminated entries so the
+          // user never sees a "🧑 🧑 🧑 …" card built from prior bugs.
+          const cleaned = sanitize(data.q);
+          if (!cleaned) {{ clearResumeStorage(); return; }}
+          if (cleaned !== data.q) {{
+            data.q = cleaned;
+            try {{
+              window.parent.localStorage.setItem(LS_KEY, JSON.stringify(data));
+            }} catch (e) {{}}
+          }}
           const ageMs = Date.now() - (data.ts || 0);
-          if (ageMs > 7 * 24 * 60 * 60 * 1000) return;  // 7-day TTL
+          if (ageMs > 7 * 24 * 60 * 60 * 1000) {{ clearResumeStorage(); return; }}
           if (doc.getElementById('cs-resume-card')) return;
-          const card = doc.createElement('button');
+          const card = doc.createElement('div');
           card.id = 'cs-resume-card';
           card.className = 'cs-resume-card';
-          card.type = 'button';
+          card.setAttribute('role', 'button');
+          card.setAttribute('tabindex', '0');
           const mins = Math.max(1, Math.round(ageMs / 60000));
           const ago = mins < 60 ? `${{mins}} min ago`
                     : mins < 1440 ? `${{Math.round(mins/60)}}h ago`
                     : `${{Math.round(mins/1440)}}d ago`;
           card.innerHTML =
+            '<button class="cs-resume-x" type="button" aria-label="Dismiss">×</button>' +
             '<div class="lbl">↻ Resume previous chat</div>' +
             '<div class="q"></div>' +
             '<div class="meta"></div>';
           card.querySelector('.q').textContent = data.q;
           card.querySelector('.meta').textContent = 'Asked ' + ago + ' · click to prefill input';
-          card.addEventListener('click', () => {{
+          function useResume() {{
             try {{
               const url = new URL(window.parent.location.href);
               url.searchParams.set('draft', encodeURIComponent(data.q));
               window.parent.history.replaceState({{}}, '', url.toString());
             }} catch (e) {{}}
             fillChatInput(data.q);
-            card.remove();
+            // One-shot: clear localStorage after the user opted in so
+            // a subsequent refresh doesn't re-show the same card.
+            clearResumeStorage();
+          }}
+          card.addEventListener('click', (ev) => {{
+            if (ev.target && ev.target.classList.contains('cs-resume-x')) return;
+            useResume();
+          }});
+          card.addEventListener('keydown', (ev) => {{
+            if (ev.key === 'Enter' || ev.key === ' ') {{
+              ev.preventDefault();
+              useResume();
+            }}
+          }});
+          card.querySelector('.cs-resume-x').addEventListener('click', (ev) => {{
+            ev.stopPropagation();
+            clearResumeStorage();
           }});
           greet.appendChild(card);
         }} catch (e) {{}}
@@ -1326,8 +1413,17 @@ def render_chat(sidebar_slot, main_slot):
         st.divider()
         # Visual: logo image background (set in module-level CSS).
         # Label kept as accessible name for screen readers.
-        if st.button("New chat", key="btn_new_chat", use_container_width=True, help="Start a new chat"):
+        if st.button("New chat", key="btn_new_chat", use_container_width=True,
+                     help="Start a new chat — also forgets the saved Resume card"):
             _perform_full_reset()
+            # Signal the network-bridge iframe to drop the cached
+            # last-query in localStorage (and any rendered Resume
+            # card). The bridge consumes this query param via
+            # history.replaceState — no page reload, no ghost.
+            try:
+                st.query_params["clear_resume"] = "1"
+            except Exception:
+                pass
             st.rerun()
 
         # Light/Dark theme toggle. Label flips with state so the user
@@ -1639,21 +1735,32 @@ def render_chat(sidebar_slot, main_slot):
         # ghost messages on the landing screen.
         # Per-message animation gate: stable script position. Always
         # emits the style tag (empty when nothing to suppress) so its
-        # element identity never shifts across reruns. Already-seen
-        # message indices get their slide-in keyframe disabled so a
-        # streaming rerun doesn't replay every prior bubble.
-        seen = st.session_state.setdefault("_animated_msgs", set())
+        # element identity never shifts across reruns.
+        #
+        # Rule: the two most-recent messages (last user + last asst)
+        # ALWAYS get their slide-in keyframe. Older messages get the
+        # keyframe suppressed via per-key rules, so a streaming rerun
+        # doesn't replay every prior bubble's entrance. This is the
+        # most predictable model — every new turn animates, history
+        # stays still.
+        last_user_idx_a = max(
+            (i for i, m in enumerate(msgs) if m["role"] == "user"),
+            default=-1,
+        )
+        last_asst_idx_a = max(
+            (i for i, m in enumerate(msgs) if m["role"] == "assistant"),
+            default=-1,
+        )
+        anim_keep = {last_user_idx_a, last_asst_idx_a}
         anim_rules = []
         for idx, msg in enumerate(msgs):
+            if idx in anim_keep:
+                continue
             role_short_a = "user" if msg["role"] == "user" else "asst"
-            key_id = f"{role_short_a}-{conv}-{idx}"
-            if key_id in seen:
-                anim_rules.append(
-                    f"[class*='st-key-chatmsg-{key_id}'] [data-testid='stChatMessage']"
-                    "{animation:none!important}"
-                )
-            else:
-                seen.add(key_id)
+            anim_rules.append(
+                f"[class*='st-key-chatmsg-{role_short_a}-{conv}-{idx}'] [data-testid='stChatMessage']"
+                "{animation:none!important}"
+            )
         st.markdown(f"<style>{''.join(anim_rules)}</style>", unsafe_allow_html=True)
 
         chat_slot = st.empty()
