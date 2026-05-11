@@ -436,14 +436,21 @@ a:hover{color:var(--accent)}
 components.html(
     f"""<script>
     (function(){{
+      // Bridge v3: idempotent re-install — no bail guard. Each
+      // iframe re-mount (post-deploy) replaces the prior bridge's
+      // event handlers / observer / DOM hooks via slots stored on
+      // window.parent. Without this, old closures from a previous
+      // bundle would persist (dead) while the new bundle's code
+      // is locked out, producing the "fixes don't appear" pattern
+      // even though the deploy itself succeeded.
       const API = {json.dumps(API_URL)};
-      const doc = window.parent && window.parent.document;
+      const W = window.parent;
+      if (!W) return;
+      const doc = W.document;
       if (!doc) return;
-      // ─── Idempotent install guard ───────────────────────────────────
-      if (window.parent.__chatsolveai_bridge__) return;
-      window.parent.__chatsolveai_bridge__ = true;
+      const SLOT = W.__cs_bridge__ = (W.__cs_bridge__ || {{}});
 
-      // ─── Network online/offline banner ──────────────────────────────
+      // ─── Helpers ────────────────────────────────────────────────────
       function ensureBanner() {{
         let b = doc.getElementById('cs-net-banner');
         if (b) return b;
@@ -458,119 +465,81 @@ components.html(
         b.textContent = text;
         b.classList.remove('cs-offline','cs-online','cs-show');
         b.classList.add(mode === 'offline' ? 'cs-offline' : 'cs-online');
-        // double-rAF so the transform transition catches
-        requestAnimationFrame(() => requestAnimationFrame(() => b.classList.add('cs-show')));
+        W.requestAnimationFrame(() => W.requestAnimationFrame(() => b.classList.add('cs-show')));
       }}
       function hideBanner(after) {{
-        setTimeout(() => {{
+        W.setTimeout(() => {{
           const b = doc.getElementById('cs-net-banner');
           if (b) b.classList.remove('cs-show');
         }}, after || 0);
       }}
-      window.parent.addEventListener('offline', () => {{
-        showBanner("You're offline — waiting for connection…", 'offline');
-      }});
-      window.parent.addEventListener('online', () => {{
-        showBanner("Back online. Re-checking backend…", 'online');
-        // Best-effort backend re-probe so the next Streamlit rerun
-        // picks up the recovery. Don't force a page reload.
-        fetch(API + "/health", {{mode:'no-cors', cache:'no-store'}})
-          .catch(()=>{{}})
-          .finally(() => hideBanner(1800));
-      }});
-      if (!window.parent.navigator.onLine) {{
-        showBanner("You're offline — waiting for connection…", 'offline');
-      }}
 
-      // ─── Draft prefill from ?draft= (edit-last + resume flows) ──────
       function fillChatInput(text) {{
-        const tries = [];
+        // Try repeatedly for up to ~1.2s in case the textarea is
+        // still mounting after a rerun. Once found, set value via
+        // React-friendly native setter so Streamlit's controlled
+        // component picks up the change.
+        let attempts = 0;
         const tryFill = () => {{
           const ta = doc.querySelector('[data-testid="stChatInput"] textarea');
           if (!ta) {{
-            if (tries.length < 20) {{
-              tries.push(1);
-              setTimeout(tryFill, 60);
-            }}
+            if (attempts++ < 20) W.setTimeout(tryFill, 60);
             return;
           }}
           const setter = Object.getOwnPropertyDescriptor(
-            window.parent.HTMLTextAreaElement.prototype, 'value'
+            W.HTMLTextAreaElement.prototype, 'value'
           ).set;
           setter.call(ta, text);
           ta.dispatchEvent(new Event('input', {{bubbles:true}}));
           ta.focus();
-          // place caret at end
-          const len = ta.value.length;
-          try {{ ta.setSelectionRange(len, len); }} catch (e) {{}}
+          try {{ ta.setSelectionRange(ta.value.length, ta.value.length); }} catch (e) {{}}
         }};
         tryFill();
       }}
+
       function consumeDraftFromUrl() {{
         try {{
-          const url = new URL(window.parent.location.href);
+          const url = new URL(W.location.href);
           const draft = url.searchParams.get('draft');
           if (!draft) return;
           fillChatInput(decodeURIComponent(draft));
           url.searchParams.delete('draft');
-          window.parent.history.replaceState({{}}, '', url.toString());
+          W.history.replaceState({{}}, '', url.toString());
         }} catch (e) {{}}
       }}
-      consumeDraftFromUrl();
-      // Re-check on hashchange / popstate in case Streamlit reruns
-      // shuffle the URL before our handler runs.
-      window.parent.addEventListener('popstate', consumeDraftFromUrl);
 
-      // ─── Hover-prefetch on the Admin Dashboard radio ───────────────
-      const ANALYTICS_PATHS = [
-        "/analytics", "/analytics/timeseries?days=14",
-        "/analytics/intents", "/analytics/latency",
-        "/analytics/feedback",
-      ];
-      let prefetched = false;
-      function prefetchAdmin() {{
-        if (prefetched) return;
-        prefetched = true;
-        ANALYTICS_PATHS.forEach(p => {{
-          try {{ fetch(API + p, {{mode:'no-cors', cache:'no-store'}}); }}
-          catch (e) {{}}
-        }});
-      }}
-      function wireAdminHover() {{
-        const labels = doc.querySelectorAll('label, [data-testid="stRadio"] label');
-        labels.forEach(l => {{
-          if (l.__csWired__) return;
-          if ((l.textContent || '').includes('Admin')) {{
-            l.__csWired__ = true;
-            l.addEventListener('mouseenter', prefetchAdmin, {{once:true}});
-            l.addEventListener('focusin', prefetchAdmin, {{once:true}});
-          }}
-        }});
-      }}
-      // Wire on first paint; the MutationObserver below also re-runs
-      // wireAdminHover on every DOM change so radio re-renders pick it
-      // up without polling.
-      wireAdminHover();
-
-      // ─── localStorage: save last user query + offer Resume card ────
       const LS_KEY = 'chatsolveai:last_query_v1';
-      // Strip leaked avatar emoji prefixes + the streaming cursor block
-      // glyph that can occasionally remain in DOM. Avatar leaks would
-      // otherwise compound (🧑 🧑 🧑 …) on each Resume cycle; the cursor
-      // (▍, U+258D) leaks when call_chat_stream's final paint races
-      // with a fast user re-submit.
-      const BLOCK_RX = /[\\u2580-\\u259F]/g;       // block-elements range
-      const LEAD_RX  = /^[^\\p{{L}}\\p{{N}}]+/u;     // strip leading non-letter/number
+      // Strips streaming cursor (▍, U+258D) + any other block-elements
+      // glyph; collapses whitespace; trims leading non-letter / non-
+      // number noise (avatars, dingbats) so the saved query stays
+      // clean across compounding Resume cycles.
+      const BLOCK_RX = /[\\u2580-\\u259F]/g;
+      const LEAD_RX  = /^[^\\p{{L}}\\p{{N}}]+/u;
       function sanitize(s) {{
         if (!s) return '';
         let t = String(s).replace(BLOCK_RX, '').replace(/\\u00A0/g, ' ');
-        // Collapse newlines + repeated whitespace.
         t = t.replace(/\\s+/g, ' ');
-        // Strip leading symbol/emoji noise (avatars, dingbats) until
-        // we hit the first letter or digit.
         t = t.replace(LEAD_RX, '');
         return t.trim();
       }}
+
+      function clearResumeStorage() {{
+        try {{ W.localStorage.removeItem(LS_KEY); }} catch (e) {{}}
+        const old = doc.getElementById('cs-resume-card');
+        if (old) old.remove();
+        SLOT.shownFor = null;
+      }}
+
+      function consumeClearResume() {{
+        try {{
+          const url = new URL(W.location.href);
+          if (url.searchParams.get('clear_resume') !== '1') return;
+          clearResumeStorage();
+          url.searchParams.delete('clear_resume');
+          W.history.replaceState({{}}, '', url.toString());
+        }} catch (e) {{}}
+      }}
+
       function saveLastQueryFromDOM() {{
         try {{
           const userMsgs = doc.querySelectorAll(
@@ -578,50 +547,31 @@ components.html(
           );
           if (!userMsgs.length) return;
           const last = userMsgs[userMsgs.length - 1];
-          // Prefer the inner .stMarkdown content; falls back to
-          // innerText with avatar-strip so we never bake the avatar
-          // emoji or streaming cursor into the saved query.
+          // Strict content selector: the avatar lives in
+          // [data-testid="stChatMessageAvatar"] OR as a sibling
+          // <img>; the actual text is inside .stMarkdown /
+          // [data-testid="stMarkdownContainer"]. Targeting the
+          // markdown node only is the only way to keep the avatar
+          // emoji from compounding into the saved string.
           const md = last.querySelector(
-            '[data-testid="stMarkdownContainer"], .stMarkdown'
+            '[data-testid="stMarkdownContainer"], .stMarkdown, [data-testid="stChatMessageContent"]'
           );
           const raw = ((md || last).innerText) || '';
           const text = sanitize(raw);
           if (!text) return;
-          const prev = window.parent.localStorage.getItem(LS_KEY);
-          // Skip the write if the cleaned text is identical to what's
-          // already stored — avoids a localStorage write per
-          // MutationObserver tick during streaming.
+          const prev = W.localStorage.getItem(LS_KEY);
           try {{
             if (prev && JSON.parse(prev).q === text) return;
           }} catch (e) {{}}
-          window.parent.localStorage.setItem(
+          W.localStorage.setItem(
             LS_KEY,
             JSON.stringify({{q: text.slice(0, 300), ts: Date.now()}})
           );
         }} catch (e) {{}}
       }}
-      function clearResumeStorage() {{
-        try {{ window.parent.localStorage.removeItem(LS_KEY); }} catch (e) {{}}
-        const old = doc.getElementById('cs-resume-card');
-        if (old) old.remove();
-      }}
-      // Handle `?clear_resume=1` set by the New-chat button so the
-      // Resume affordance is consistent with a session reset.
-      function consumeClearResume() {{
-        try {{
-          const url = new URL(window.parent.location.href);
-          if (url.searchParams.get('clear_resume') !== '1') return;
-          clearResumeStorage();
-          url.searchParams.delete('clear_resume');
-          window.parent.history.replaceState({{}}, '', url.toString());
-        }} catch (e) {{}}
-      }}
-      consumeClearResume();
+
       function maybeShowResumeCard() {{
         try {{
-          // Only on landing (no chat messages yet) and where the
-          // greeting block is visible — keeps the card from intruding
-          // mid-conversation.
           const hasMsgs = doc.querySelector(
             '[class*="st-key-chatmsg-"] [data-testid="stChatMessage"]'
           );
@@ -631,20 +581,18 @@ components.html(
             if (old) old.remove();
             return;
           }}
-          const raw = window.parent.localStorage.getItem(LS_KEY);
+          const raw = W.localStorage.getItem(LS_KEY);
           if (!raw) return;
           let data;
           try {{ data = JSON.parse(raw); }} catch (e) {{ return; }}
           if (!data || !data.q) return;
-          // Migrate / sanitize any legacy contaminated entries so the
-          // user never sees a "🧑 🧑 🧑 …" card built from prior bugs.
+          // Sanitize legacy contaminated entries on read so a card
+          // built from pre-fix data still renders clean text.
           const cleaned = sanitize(data.q);
           if (!cleaned) {{ clearResumeStorage(); return; }}
           if (cleaned !== data.q) {{
             data.q = cleaned;
-            try {{
-              window.parent.localStorage.setItem(LS_KEY, JSON.stringify(data));
-            }} catch (e) {{}}
+            try {{ W.localStorage.setItem(LS_KEY, JSON.stringify(data)); }} catch (e) {{}}
           }}
           const ageMs = Date.now() - (data.ts || 0);
           if (ageMs > 7 * 24 * 60 * 60 * 1000) {{ clearResumeStorage(); return; }}
@@ -665,26 +613,21 @@ components.html(
             '<div class="meta"></div>';
           card.querySelector('.q').textContent = data.q;
           card.querySelector('.meta').textContent = 'Asked ' + ago + ' · click to prefill input';
-          function useResume() {{
+          const useResume = () => {{
             try {{
-              const url = new URL(window.parent.location.href);
+              const url = new URL(W.location.href);
               url.searchParams.set('draft', encodeURIComponent(data.q));
-              window.parent.history.replaceState({{}}, '', url.toString());
+              W.history.replaceState({{}}, '', url.toString());
             }} catch (e) {{}}
             fillChatInput(data.q);
-            // One-shot: clear localStorage after the user opted in so
-            // a subsequent refresh doesn't re-show the same card.
             clearResumeStorage();
-          }}
+          }};
           card.addEventListener('click', (ev) => {{
-            if (ev.target && ev.target.classList.contains('cs-resume-x')) return;
+            if (ev.target && ev.target.classList && ev.target.classList.contains('cs-resume-x')) return;
             useResume();
           }});
           card.addEventListener('keydown', (ev) => {{
-            if (ev.key === 'Enter' || ev.key === ' ') {{
-              ev.preventDefault();
-              useResume();
-            }}
+            if (ev.key === 'Enter' || ev.key === ' ') {{ ev.preventDefault(); useResume(); }}
           }});
           card.querySelector('.cs-resume-x').addEventListener('click', (ev) => {{
             ev.stopPropagation();
@@ -693,15 +636,64 @@ components.html(
           greet.appendChild(card);
         }} catch (e) {{}}
       }}
-      // Re-evaluate save / show / hover-wire whenever the parent DOM
-      // changes. MutationObserver is cheaper than polling and covers
-      // every Streamlit rerun without subscribing to internals. rAF
-      // throttle prevents bursts of mutations from queueing N runs.
+
+      const ANALYTICS_PATHS = [
+        "/analytics", "/analytics/timeseries?days=14",
+        "/analytics/intents", "/analytics/latency", "/analytics/feedback",
+      ];
+      function prefetchAdmin() {{
+        if (SLOT.prefetched) return;
+        SLOT.prefetched = true;
+        ANALYTICS_PATHS.forEach(p => {{
+          try {{ fetch(API + p, {{mode:'no-cors', cache:'no-store'}}); }} catch (e) {{}}
+        }});
+      }}
+      function wireAdminHover() {{
+        doc.querySelectorAll('label, [data-testid="stRadio"] label').forEach(l => {{
+          if (l.__csWired__) return;
+          if ((l.textContent || '').includes('Admin')) {{
+            l.__csWired__ = true;
+            l.addEventListener('mouseenter', prefetchAdmin, {{once:true}});
+            l.addEventListener('focusin', prefetchAdmin, {{once:true}});
+          }}
+        }});
+      }}
+
+      // ─── Re-install handlers / observer (replaces prior bridge) ─────
+      if (SLOT.handlers) {{
+        try {{
+          W.removeEventListener('online',   SLOT.handlers.online);
+          W.removeEventListener('offline',  SLOT.handlers.offline);
+          W.removeEventListener('popstate', SLOT.handlers.popstate);
+        }} catch (e) {{}}
+      }}
+      const onlineH  = () => {{
+        showBanner("Back online. Re-checking backend…", 'online');
+        fetch(API + "/health", {{mode:'no-cors', cache:'no-store'}})
+          .catch(()=>{{}}).finally(() => hideBanner(1800));
+      }};
+      const offlineH = () => {{
+        showBanner("You're offline — waiting for connection…", 'offline');
+      }};
+      const popstateH = () => consumeDraftFromUrl();
+      W.addEventListener('online',   onlineH);
+      W.addEventListener('offline',  offlineH);
+      W.addEventListener('popstate', popstateH);
+      SLOT.handlers = {{online: onlineH, offline: offlineH, popstate: popstateH}};
+      if (!W.navigator.onLine) offlineH();
+
+      consumeClearResume();
+      consumeDraftFromUrl();
+      wireAdminHover();
+
+      if (SLOT.observer) {{
+        try {{ SLOT.observer.disconnect(); }} catch (e) {{}}
+      }}
       let ticking = false;
       const tick = () => {{
         if (ticking) return;
         ticking = true;
-        window.parent.requestAnimationFrame(() => {{
+        W.requestAnimationFrame(() => {{
           ticking = false;
           try {{
             saveLastQueryFromDOM();
@@ -710,8 +702,9 @@ components.html(
           }} catch (e) {{}}
         }});
       }};
-      const mo = new window.parent.MutationObserver(tick);
+      const mo = new W.MutationObserver(tick);
       mo.observe(doc.body, {{childList:true, subtree:true}});
+      SLOT.observer = mo;
       tick();
     }})();
     </script>""",
