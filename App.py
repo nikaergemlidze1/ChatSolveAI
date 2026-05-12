@@ -727,6 +727,15 @@ components.html(
         W.requestAnimationFrame(() => {{
           ticking = false;
           try {{
+            // Re-check the New-chat clear signal on every DOM tick.
+            // The iframe hosting this bridge is reused across
+            // st.rerun(), so the script body only executes on first
+            // mount — but Streamlit may set ?clear_resume=1 on any
+            // subsequent rerun (when the user hits New chat). Without
+            // this call here, the URL param would sit unconsumed and
+            // the previous Resume draft would linger in the chat
+            // input. Self-gates on the URL param, so this is cheap.
+            consumeClearResume();
             saveLastQueryFromDOM();
             maybeShowResumeCard();
             wireAdminHover();
