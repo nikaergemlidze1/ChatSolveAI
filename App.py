@@ -535,11 +535,37 @@ components.html(
         SLOT.shownFor = null;
       }}
 
+      // Wipe any leftover draft text from the chat input textarea.
+      // Used by the New-chat reset path: a prior Resume click filled
+      // the textarea via fillChatInput(), and Streamlit's chat_input
+      // keeps that React-controlled value across st.rerun(), so the
+      // ghost prompt would otherwise sit in the input on the fresh
+      // empty-state landing. Retries briefly to catch the textarea
+      // even if it re-mounts during the rerun.
+      function clearChatInputDraft() {{
+        let attempts = 0;
+        const tryClear = () => {{
+          const ta = doc.querySelector('[data-testid="stChatInput"] textarea');
+          if (!ta) {{
+            if (attempts++ < 20) W.setTimeout(tryClear, 60);
+            return;
+          }}
+          if (!ta.value) return;
+          const setter = Object.getOwnPropertyDescriptor(
+            W.HTMLTextAreaElement.prototype, 'value'
+          ).set;
+          setter.call(ta, '');
+          ta.dispatchEvent(new Event('input', {{bubbles:true}}));
+        }};
+        tryClear();
+      }}
+
       function consumeClearResume() {{
         try {{
           const url = new URL(W.location.href);
           if (url.searchParams.get('clear_resume') !== '1') return;
           clearResumeStorage();
+          clearChatInputDraft();
           url.searchParams.delete('clear_resume');
           W.history.replaceState({{}}, '', url.toString());
         }} catch (e) {{}}
